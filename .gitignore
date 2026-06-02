@@ -1,0 +1,23 @@
+# Secrets — NUNCA subir
+.streamlit/secrets.toml
+*.secret
+
+# Contas de usuários (dados locais)
+auth/users.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Saídas temporárias
+/tmp/
+*.tmp
+outputs/
