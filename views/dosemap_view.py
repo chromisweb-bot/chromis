@@ -121,30 +121,57 @@ def dosemap_view(state, go):
     theme_val = "dark" if theme_choice == t("cal_theme_dark") else "light"
     is_percent = display_mode == t("dm_percent")
 
-    # Fonte do background (PV0). Se o filme de medida foi escaneado em condicoes
-    # diferentes da calibracao, usar uma regiao NAO irradiada do proprio filme
-    # como referencia reduz o erro sistematico (boa pratica da literatura).
+    # Fonte do background (PV0). Tres opcoes, da mais recomendada a menos:
+    #  1) upload de um filme de background separado (mesmo lote, mesmo scan) = padrao-ouro
+    #  2) regiao nao irradiada do proprio filme de medida (cancela tempo/scanner)
+    #  3) filme zero da calibracao (pode divergir se escaneado em outro momento)
     bg_mode = st.radio(t("dm_bg_source"),
-                       [t("dm_bg_calib"), t("dm_bg_film")],
+                       [t("dm_bg_upload"), t("dm_bg_film"), t("dm_bg_calib")],
                        key="dm_bg_source")
+    st.caption(t("dm_bg_hint"))
+
+    bg_img = None
+    if bg_mode == t("dm_bg_upload"):
+        bgup = st.file_uploader(t("dm_bg_upload_label"),
+                                type=["tif", "tiff", "png", "jpg", "jpeg"],
+                                key="dm_bg_upload_widget")
+        if bgup is not None:
+            bg_img = bytes_to_array(bgup.getvalue(), bgup.name)
+
     use_film_bg = bg_mode == t("dm_bg_film")
+    use_bg_upload = bg_mode == t("dm_bg_upload")
+
+    if use_bg_upload and bg_img is None:
+        st.info(t("dm_bg_waiting"))
+        return
 
     with st.spinner("..."):
         import numpy as np
+        from utils.dose_map_engine import _red_channel
         minr, minc, maxr, maxc = film["bbox"]
         crop = measure_img[minr:maxr, minc:maxc]
 
         pv_zero_use = pv_zero
-        if use_film_bg:
+        if use_bg_upload and bg_img is not None:
+            # PV0 = mediana do canal vermelho do filme de background (detecta o filme)
+            try:
+                bfilms, _ = detect_films(bg_img)
+                bordered = order_films_by_intensity(bfilms)
+                if bordered:
+                    bb = bordered[0]["bbox"]
+                    bg_crop = bg_img[bb[0]:bb[2], bb[1]:bb[3]]
+                else:
+                    bg_crop = bg_img
+                pv_zero_use = float(np.median(_red_channel(bg_crop)))
+            except Exception:
+                pv_zero_use = float(np.median(_red_channel(bg_img)))
+        elif use_film_bg:
             # Estimar PV0 dos cantos do filme (regioes tipicamente nao irradiadas).
-            # Usa o canal vermelho; pega o valor mais CLARO (maior PV = menor dose).
-            from utils.dose_map_engine import _red_channel
             red = _red_channel(crop)
             h, w = red.shape
-            cs = max(4, int(min(h, w) * 0.12))  # tamanho do canto
+            cs = max(4, int(min(h, w) * 0.12))
             corners = [red[:cs, :cs], red[:cs, -cs:], red[-cs:, :cs], red[-cs:, -cs:]]
             corner_meds = [float(np.median(c)) for c in corners]
-            # o canto menos irradiado = maior PV (filme mais claro)
             pv_zero_use = max(corner_meds)
 
         result = compute_dose_map(crop, pv_zero_use, model_obj,

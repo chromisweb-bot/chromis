@@ -249,6 +249,15 @@ STRINGS = {
     "dm_bg_source":       {"pt": "Fundo de referencia (PV0)", "en": "Reference background (PV0)"},
     "dm_bg_calib":        {"pt": "Usar o filme zero da calibracao", "en": "Use the calibration zero film"},
     "dm_bg_film":         {"pt": "Usar regiao nao irradiada do proprio filme", "en": "Use unirradiated region of this film"},
+    "dm_bg_upload":       {"pt": "Enviar um filme de background separado (recomendado)",
+                           "en": "Upload a separate background film (recommended)"},
+    "dm_bg_upload_label": {"pt": "Filme de background (nao irradiado, mesmo lote)",
+                           "en": "Background film (unirradiated, same lot)"},
+    "dm_bg_waiting":      {"pt": "Envie o filme de background para continuar.",
+                           "en": "Upload the background film to continue."},
+    "dm_bg_hint":         {"pt": "O ideal e um filme nao irradiado do mesmo lote, escaneado junto com o filme de medida. Isso cancela variacoes de scanner e de tempo pos-irradiacao.",
+                           "en": "Ideally an unirradiated film from the same lot, scanned together with the measurement film. This cancels scanner and post-irradiation time variations."},
+
 
 }
 
