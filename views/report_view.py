@@ -117,8 +117,9 @@ def report_view(state, go):
                         _img, _ordered, state.get("film_doses", {}),
                         up_data.get("unit", "cGy"), lang=report_lang, theme="light",
                         roi_info=state.get("film_roi_info"))
-                except Exception:
-                    pass
+                except Exception as e:
+                    st.warning(f"Aviso: nao foi possivel regenerar a galeria de filmes ({e}). "
+                               f"Usando a versao salva.")
 
             try:
                 pdf_bytes = generate_report(study, lang=report_lang,
