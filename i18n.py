@@ -236,12 +236,12 @@ STRINGS = {
     "dm_known_dose":      {"pt": "Dose irradiada no filme", "en": "Dose delivered to film"},
     "dm_known_dose_hint": {"pt": "Informe a dose com que o filme de medida foi irradiado (opcional, para validar o mapa).",
                            "en": "Enter the dose the measurement film was irradiated with (optional, to validate the map)."},
-    "dm_validation":      {"pt": "Validacao (centro do filme)", "en": "Validation (film center)"},
+    "dm_validation":      {"pt": "Validacao (plato do campo irradiado)", "en": "Validation (irradiated field plateau)"},
     "dm_irradiated":      {"pt": "Dose irradiada", "en": "Delivered dose"},
-    "dm_measured_center": {"pt": "Dose medida (centro)", "en": "Measured dose (center)"},
+    "dm_measured_center": {"pt": "Dose medida (plato)", "en": "Measured dose (plateau)"},
     "dm_difference":      {"pt": "Diferenca", "en": "Difference"},
-    "dm_diff_hint":       {"pt": "Diferenca entre a dose medida no centro e a dose irradiada informada.",
-                           "en": "Difference between the measured central dose and the entered delivered dose."},
+    "dm_diff_hint":       {"pt": "Dose medida na regiao de dose plena (plato do campo), comparada a dose irradiada informada. Esperado: dentro de +/-3 a 5%.",
+                           "en": "Dose measured in the full-dose region (field plateau), compared to the entered delivered dose. Expected: within +/-3 to 5%."},
 }
 
 

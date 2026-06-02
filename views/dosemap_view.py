@@ -150,20 +150,26 @@ def dosemap_view(state, go):
     known_cgy = None
     if known_dose and known_dose > 0:
         known_cgy = known_dose * 100.0 if known_unit == "Gy" else known_dose
-        # Dose central medida (mediana da regiao central do mapa)
         import numpy as np
         dm_abs = result["dose_map"]
-        h, w = dm_abs.shape
-        cy0, cy1 = int(h * 0.35), int(h * 0.65)
-        cx0, cx1 = int(w * 0.35), int(w * 0.65)
-        central = float(np.nanmedian(dm_abs[cy0:cy1, cx0:cx1]))
-        diff_pct = (central - known_cgy) / known_cgy * 100.0 if known_cgy else 0.0
+        # Medir no PLATO do campo irradiado (regiao de dose alta), nao no centro
+        # geometrico do filme. Usamos a mediana dos pixels acima do percentil 90,
+        # que representa a regiao de dose plena (o "alvo" irradiado).
+        valid = dm_abs[np.isfinite(dm_abs)]
+        if valid.size:
+            thr = np.nanpercentile(dm_abs, 90)
+            plateau = dm_abs[dm_abs >= thr]
+            measured = float(np.nanmedian(plateau)) if plateau.size else float(np.nanmedian(dm_abs))
+        else:
+            measured = 0.0
+        diff_pct = (measured - known_cgy) / known_cgy * 100.0 if known_cgy else 0.0
         st.markdown(f"**{t('dm_validation')}**")
         v1, v2, v3 = st.columns(3)
         v1.metric(t("dm_irradiated"), f"{known_cgy:.0f} cGy")
-        v2.metric(t("dm_measured_center"), f"{central:.0f} cGy")
+        v2.metric(t("dm_measured_center"), f"{measured:.0f} cGy")
         v3.metric(t("dm_difference"), f"{diff_pct:+.1f}%")
         st.caption(t("dm_diff_hint"))
+        central = measured
 
     st.markdown(f"<hr style='border:none;border-top:0.5px solid {COLORS['border_soft']};margin:16px 0'>",
                 unsafe_allow_html=True)
