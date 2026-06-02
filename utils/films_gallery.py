@@ -13,9 +13,14 @@ _TXT = {
     "roi": {"pt": "ROI", "en": "ROI"},
     "field_full": {"pt": "campo = filme", "en": "field = film"},
     "field_smaller": {"pt": "campo < filme", "en": "field < film"},
+    "legend_film": {"pt": "Filme", "en": "Film"},
+    "legend_recoil": {"pt": "Recuo", "en": "Recoil"},
+    "legend_roi": {"pt": "ROI", "en": "ROI"},
 }
 
-C_BORDER = (63, 185, 80)   # verde
+C_FILM = (63, 185, 80)      # verde - contorno do filme
+C_RECOIL = (210, 153, 34)   # ambar - recuo
+C_ROI = (248, 81, 73)       # vermelho - ROI
 
 
 def _load_font(size):
@@ -58,7 +63,7 @@ def make_films_gallery(image_rgb, ordered_films, doses_map=None, unit="cGy",
                        lang="pt", theme="light", roi_info=None):
     """
     Monta UMA imagem (PNG bytes) com todos os filmes recortados, numerados,
-    com titulo (dose) e legenda (recuo, ROI, campo). Usa PIL.
+    com titulo (dose), contornos (recuo ambar, ROI vermelho) e legenda. Usa PIL.
     """
     def tr(k):
         return _TXT[k][lang]
@@ -68,12 +73,11 @@ def make_films_gallery(image_rgb, ordered_films, doses_map=None, unit="cGy",
     if n == 0:
         return None
 
-    # Tamanho de cada celula
-    cell_w, cell_h = 240, 230
-    pad = 12
-    img_max_h = 150          # altura maxima do recorte do filme
+    # Tamanho de cada celula (mais largura para a legenda caber)
+    cell_w, cell_h = 300, 250
+    pad = 16
+    img_max_h = 150
     title_h = 26
-    legend_h = 22
 
     ncols = min(n, 3)
     nrows = (n + ncols - 1) // ncols
@@ -82,8 +86,9 @@ def make_films_gallery(image_rgb, ordered_films, doses_map=None, unit="cGy",
     fg = (30, 41, 59) if theme == "light" else (230, 237, 243)
     sub = (71, 85, 105) if theme == "light" else (139, 148, 158)
 
+    legend_band = 30  # faixa para a legenda de cores no rodape
     canvas_w = ncols * cell_w + (ncols + 1) * pad
-    canvas_h = nrows * cell_h + (nrows + 1) * pad
+    canvas_h = nrows * cell_h + (nrows + 1) * pad + legend_band
     canvas = Image.new("RGB", (canvas_w, canvas_h), bg)
     draw = ImageDraw.Draw(canvas)
 
@@ -111,21 +116,34 @@ def make_films_gallery(image_rgb, ordered_films, doses_map=None, unit="cGy",
         # Recorte do filme
         minr, minc, maxr, maxc = film["bbox"]
         crop = pil_full.crop((minc, minr, maxc, maxr))
-        # Redimensionar mantendo proporcao
         cw, ch = crop.size
-        ratio = min((cell_w) / cw, img_max_h / ch)
+        ratio = min(cell_w / cw, img_max_h / ch)
         new_w, new_h = max(1, int(cw * ratio)), max(1, int(ch * ratio))
         crop = crop.resize((new_w, new_h), Image.LANCZOS)
 
         img_x = x0 + (cell_w - new_w) // 2
         img_y = y0 + title_h
         canvas.paste(crop, (img_x, img_y))
-        # Contorno verde
-        draw.rectangle([img_x, img_y, img_x + new_w, img_y + new_h],
-                       outline=C_BORDER, width=3)
 
-        # Legenda
+        # Contorno verde do filme
+        draw.rectangle([img_x, img_y, img_x + new_w, img_y + new_h],
+                       outline=C_FILM, width=3)
+
+        # Contornos internos: recuo (ambar tracejado) e ROI (vermelho)
         ri = (roi_info or {}).get(order, {})
+        # Recuo: ~10% para dentro (representativo)
+        rec_in = int(min(new_w, new_h) * 0.10)
+        draw.rectangle([img_x + rec_in, img_y + rec_in,
+                        img_x + new_w - rec_in, img_y + new_h - rec_in],
+                       outline=C_RECOIL, width=2)
+        # ROI: ~30% central (representativo)
+        roi_mx = int(new_w * 0.30)
+        roi_my = int(new_h * 0.22)
+        draw.rectangle([img_x + roi_mx, img_y + roi_my,
+                        img_x + new_w - roi_mx, img_y + new_h - roi_my],
+                       outline=C_ROI, width=2)
+
+        # Legenda de texto (recuo, ROI, campo) - quebrada em 2 linhas se preciso
         parts = []
         if ri.get("recoil_mm") is not None:
             parts.append(f"{tr('recoil')} {ri['recoil_mm']}mm")
@@ -135,8 +153,26 @@ def make_films_gallery(image_rgb, ordered_films, doses_map=None, unit="cGy",
             parts.append(tr("field_full") if ri["field_type"] == "full"
                          else tr("field_smaller"))
         if parts and f_legend:
-            legend = " - ".join(parts)
-            draw.text((x0, img_y + new_h + 6), legend, fill=sub, font=f_legend)
+            line1 = " - ".join(parts[:2])
+            line2 = parts[2] if len(parts) > 2 else ""
+            ly = img_y + new_h + 6
+            draw.text((img_x, ly), line1, fill=sub, font=f_legend)
+            if line2:
+                draw.text((img_x, ly + 15), line2, fill=sub, font=f_legend)
+
+    # Legenda de cores no rodape
+    if f_legend:
+        ly = canvas_h - legend_band + 8
+        lx = pad
+        items = [
+            (C_FILM, tr("legend_film")),
+            (C_RECOIL, tr("legend_recoil")),
+            (C_ROI, tr("legend_roi")),
+        ]
+        for color, label in items:
+            draw.rectangle([lx, ly, lx + 12, ly + 12], fill=color)
+            draw.text((lx + 18, ly), label, fill=sub, font=f_legend)
+            lx += 30 + len(label) * 7
 
     buf = io.BytesIO()
     canvas.save(buf, format="PNG")
