@@ -121,10 +121,33 @@ def dosemap_view(state, go):
     theme_val = "dark" if theme_choice == t("cal_theme_dark") else "light"
     is_percent = display_mode == t("dm_percent")
 
+    # Fonte do background (PV0). Se o filme de medida foi escaneado em condicoes
+    # diferentes da calibracao, usar uma regiao NAO irradiada do proprio filme
+    # como referencia reduz o erro sistematico (boa pratica da literatura).
+    bg_mode = st.radio(t("dm_bg_source"),
+                       [t("dm_bg_calib"), t("dm_bg_film")],
+                       key="dm_bg_source")
+    use_film_bg = bg_mode == t("dm_bg_film")
+
     with st.spinner("..."):
+        import numpy as np
         minr, minc, maxr, maxc = film["bbox"]
         crop = measure_img[minr:maxr, minc:maxc]
-        result = compute_dose_map(crop, pv_zero, model_obj,
+
+        pv_zero_use = pv_zero
+        if use_film_bg:
+            # Estimar PV0 dos cantos do filme (regioes tipicamente nao irradiadas).
+            # Usa o canal vermelho; pega o valor mais CLARO (maior PV = menor dose).
+            from utils.dose_map_engine import _red_channel
+            red = _red_channel(crop)
+            h, w = red.shape
+            cs = max(4, int(min(h, w) * 0.12))  # tamanho do canto
+            corners = [red[:cs, :cs], red[:cs, -cs:], red[-cs:, :cs], red[-cs:, -cs:]]
+            corner_meds = [float(np.median(c)) for c in corners]
+            # o canto menos irradiado = maior PV (filme mais claro)
+            pv_zero_use = max(corner_meds)
+
+        result = compute_dose_map(crop, pv_zero_use, model_obj,
                                   normalize="max" if is_percent else None)
         if is_percent:
             png = render_dose_map_png(result["dose_map_pct"], unit, get_lang(),
@@ -151,15 +174,19 @@ def dosemap_view(state, go):
     if known_dose and known_dose > 0:
         known_cgy = known_dose * 100.0 if known_unit == "Gy" else known_dose
         import numpy as np
+        from scipy.ndimage import median_filter
         dm_abs = result["dose_map"]
-        # Medir no PLATO do campo irradiado (regiao de dose alta), nao no centro
-        # geometrico do filme. Usamos a mediana dos pixels acima do percentil 90,
-        # que representa a regiao de dose plena (o "alvo" irradiado).
-        valid = dm_abs[np.isfinite(dm_abs)]
+        # Medir no PLATO do campo irradiado (regiao de dose plena).
+        # Boas praticas (literatura): medir em AREA, nao pixel; suavizar ruido.
+        # 1) suavizar o mapa com mediana (reduz ruido de scanner)
+        dm_smooth = median_filter(dm_abs, size=5)
+        # 2) identificar o plato: pixels >= percentil 95 (regiao de dose plena)
+        valid = dm_smooth[np.isfinite(dm_smooth)]
         if valid.size:
-            thr = np.nanpercentile(dm_abs, 90)
-            plateau = dm_abs[dm_abs >= thr]
-            measured = float(np.nanmedian(plateau)) if plateau.size else float(np.nanmedian(dm_abs))
+            thr = np.nanpercentile(dm_smooth, 95)
+            # 3) tomar a regiao de dose plena e medir a MEDIANA (robusta a outliers)
+            plateau = dm_smooth[dm_smooth >= thr]
+            measured = float(np.nanmedian(plateau)) if plateau.size else float(np.nanmedian(dm_smooth))
         else:
             measured = 0.0
         diff_pct = (measured - known_cgy) / known_cgy * 100.0 if known_cgy else 0.0
@@ -169,6 +196,14 @@ def dosemap_view(state, go):
         v2.metric(t("dm_measured_center"), f"{measured:.0f} cGy")
         v3.metric(t("dm_difference"), f"{diff_pct:+.1f}%")
         st.caption(t("dm_diff_hint"))
+        # Aviso interpretativo conforme a magnitude do erro
+        ad = abs(diff_pct)
+        if ad <= 3:
+            st.success(t("dm_diff_great"))
+        elif ad <= 5:
+            st.info(t("dm_diff_ok"))
+        else:
+            st.warning(t("dm_diff_check"))
         central = measured
 
     st.markdown(f"<hr style='border:none;border-top:0.5px solid {COLORS['border_soft']};margin:16px 0'>",

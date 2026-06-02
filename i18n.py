@@ -242,6 +242,14 @@ STRINGS = {
     "dm_difference":      {"pt": "Diferenca", "en": "Difference"},
     "dm_diff_hint":       {"pt": "Dose medida na regiao de dose plena (plato do campo), comparada a dose irradiada informada. Esperado: dentro de +/-3 a 5%.",
                            "en": "Dose measured in the full-dose region (field plateau), compared to the entered delivered dose. Expected: within +/-3 to 5%."},
+    "dm_diff_great":      {"pt": "Excelente concordancia (dentro de 3%).", "en": "Excellent agreement (within 3%)."},
+    "dm_diff_ok":         {"pt": "Concordancia aceitavel (3 a 5%).", "en": "Acceptable agreement (3 to 5%)."},
+    "dm_diff_check":      {"pt": "Diferenca alta (>5%). Verifique: tempo pos-irradiacao igual ao da calibracao? Mesmo scanner/DPI? Tente usar o fundo do proprio filme.",
+                           "en": "High difference (>5%). Check: same post-irradiation time as calibration? Same scanner/DPI? Try using the film's own background."},
+    "dm_bg_source":       {"pt": "Fundo de referencia (PV0)", "en": "Reference background (PV0)"},
+    "dm_bg_calib":        {"pt": "Usar o filme zero da calibracao", "en": "Use the calibration zero film"},
+    "dm_bg_film":         {"pt": "Usar regiao nao irradiada do proprio filme", "en": "Use unirradiated region of this film"},
+
 }
 
 
