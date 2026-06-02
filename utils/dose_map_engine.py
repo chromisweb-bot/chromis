@@ -27,7 +27,8 @@ def _red_channel(image):
     return red
 
 
-def compute_dose_map(film_image, pv_zero, model_obj, denoise=True):
+def compute_dose_map(film_image, pv_zero, model_obj, denoise=True,
+                     normalize=None):
     """
     Converte um recorte de filme irradiado em mapa de dose.
 
@@ -36,12 +37,12 @@ def compute_dose_map(film_image, pv_zero, model_obj, denoise=True):
         pv_zero: valor de pixel (canal vermelho) do filme de dose zero.
         model_obj: CalibrationModel ajustado (calibration.py).
         denoise: se True, aplica filtro de mediana leve para reduzir ruido.
+        normalize: None = dose absoluta; "max" = % da dose maxima;
+                   um numero = % em relacao a esse valor de referencia.
 
     Returns:
-        dict com:
-          "dose_map": matriz 2D de dose (mesmo shape do recorte)
-          "netod_map": matriz 2D de netOD
-          "dose_min", "dose_max", "dose_mean"
+        dict com dose_map (absoluta), netod_map, dose_min/max/mean,
+        e se normalize for usado: dose_map_pct, ref_dose, mode.
     """
     from calibration import predict_dose
 
@@ -54,19 +55,17 @@ def compute_dose_map(film_image, pv_zero, model_obj, denoise=True):
         except Exception:
             pass
 
-    # netOD por pixel
     pv_zero = max(float(pv_zero), 1e-6)
     red_safe = np.clip(red, 1e-6, None)
     netod = np.log10(pv_zero / red_safe)
-    netod = np.clip(netod, 0.0, None)  # netOD nao pode ser negativo
+    netod = np.clip(netod, 0.0, None)
 
-    # Aplicar a curva de calibracao em cada pixel
     flat = netod.ravel()
     dose_flat = predict_dose(model_obj, flat)
     dose_map = np.asarray(dose_flat, dtype=np.float64).reshape(netod.shape)
-    dose_map = np.clip(dose_map, 0.0, None)  # dose nao-negativa
+    dose_map = np.clip(dose_map, 0.0, None)
 
-    return {
+    result = {
         "dose_map": dose_map,
         "netod_map": netod,
         "dose_min": float(np.nanmin(dose_map)),
@@ -74,11 +73,29 @@ def compute_dose_map(film_image, pv_zero, model_obj, denoise=True):
         "dose_mean": float(np.nanmean(dose_map)),
     }
 
+    # Mapa percentual
+    if normalize is not None:
+        if normalize == "max":
+            # usa percentil 99 para evitar outliers/artefatos (boa pratica)
+            ref = float(np.nanpercentile(dose_map, 99))
+        else:
+            ref = float(normalize)
+        ref = max(ref, 1e-6)
+        dose_pct = dose_map / ref * 100.0
+        result["dose_map_pct"] = dose_pct
+        result["ref_dose"] = ref
+        result["pct_min"] = float(np.nanmin(dose_pct))
+        result["pct_max"] = float(np.nanmax(dose_pct))
+        result["pct_mean"] = float(np.nanmean(dose_pct))
+
+    return result
+
 
 def render_dose_map_png(dose_map, unit="cGy", lang="pt", theme="dark",
-                        title=None):
+                        title=None, percent=False):
     """
-    Renderiza o mapa de dose como uma imagem PNG (heatmap) com barra de cor.
+    Renderiza o mapa de dose como imagem PNG (heatmap) com barra de cor.
+    Se percent=True, o dose_map ja esta em % e a barra mostra %.
     Retorna bytes PNG.
     """
     import io
@@ -93,7 +110,10 @@ def render_dose_map_png(dose_map, unit="cGy", lang="pt", theme="dark",
 
     if title is None:
         title = "Mapa de Dose" if lang == "pt" else "Dose Map"
-    cbar_label = f"Dose ({unit})"
+    if percent:
+        cbar_label = "Dose (%)"
+    else:
+        cbar_label = f"Dose ({unit})"
 
     fig, ax = plt.subplots(figsize=(6, 5), dpi=100)
     fig.patch.set_facecolor(bg)

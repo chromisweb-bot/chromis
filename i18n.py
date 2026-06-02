@@ -218,6 +218,21 @@ STRINGS = {
     "dm_dose_min":        {"pt": "Dose minima", "en": "Min dose"},
     "dm_dose_mean":       {"pt": "Dose media", "en": "Mean dose"},
     "dm_dose_max":        {"pt": "Dose maxima", "en": "Max dose"},
+    "dm_source":          {"pt": "Origem do filme de medida", "en": "Measurement film source"},
+    "dm_source_q":        {"pt": "De onde vem o filme a analisar?", "en": "Where does the film to analyze come from?"},
+    "dm_source_upload":   {"pt": "Fazer upload de um filme especifico", "en": "Upload a specific film"},
+    "dm_source_calib":    {"pt": "Usar os filmes da calibracao", "en": "Use the calibration films"},
+    "dm_upload_hint":     {"pt": "Envie o filme irradiado com o campo/plano que deseja analisar.",
+                           "en": "Upload the irradiated film with the field/plan you want to analyze."},
+    "dm_upload":          {"pt": "Filme de medida", "en": "Measurement film"},
+    "dm_no_calib_films":  {"pt": "Nenhum filme de calibracao carregado. Va ao Upload de Imagens.",
+                           "en": "No calibration film loaded. Go to Image Upload."},
+    "dm_waiting_film":    {"pt": "Aguardando o filme para gerar o mapa de dose.",
+                           "en": "Waiting for the film to generate the dose map."},
+    "dm_display":         {"pt": "Modo de exibicao", "en": "Display mode"},
+    "dm_percent":         {"pt": "Dose percentual (%)", "en": "Percentage dose (%)"},
+    "dm_absolute":        {"pt": "Dose absoluta", "en": "Absolute dose"},
+    "dm_ref":             {"pt": "Referencia (100%)", "en": "Reference (100%)"},
 }
 
 

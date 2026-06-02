@@ -77,6 +77,7 @@ R = {
     "dm_min":       {"pt": "Dose minima", "en": "Min dose"},
     "dm_mean":      {"pt": "Dose media", "en": "Mean dose"},
     "dm_max":       {"pt": "Dose maxima", "en": "Max dose"},
+    "dm_ref_r":     {"pt": "Referencia (100%)", "en": "Reference (100%)"},
     "dm_img":       {"pt": "Distribuicao de dose:", "en": "Dose distribution:"},
     "footer":       {"pt": "Chromis WEB · AAPM TG-218 · Autor: MACIEL, J. O.",
                      "en": "Chromis WEB - AAPM TG-218 - Author: MACIEL, J. O."},
@@ -219,12 +220,21 @@ def generate_report(study, lang="pt", selected_modules=None,
         dm = study["dosemap"]
         story.append(Paragraph(_tr("sec_dosemap", lang), h_sec))
         unit = dm.get("unit", "cGy")
-        info = [
-            [_tr("dm_film", lang), str(dm.get("film", "-"))],
-            [_tr("dm_min", lang), "%.0f %s" % (dm.get("dose_min", 0), unit)],
-            [_tr("dm_mean", lang), "%.0f %s" % (dm.get("dose_mean", 0), unit)],
-            [_tr("dm_max", lang), "%.0f %s" % (dm.get("dose_max", 0), unit)],
-        ]
+        if dm.get("is_percent"):
+            info = [
+                [_tr("dm_film", lang), str(dm.get("film", "-"))],
+                [_tr("dm_ref_r", lang), "%.0f %s" % (dm.get("ref_dose", 0), unit)],
+                [_tr("dm_min", lang), "%.0f %%" % dm.get("pct_min", 0)],
+                [_tr("dm_mean", lang), "%.0f %%" % dm.get("pct_mean", 0)],
+                [_tr("dm_max", lang), "%.0f %%" % dm.get("pct_max", 0)],
+            ]
+        else:
+            info = [
+                [_tr("dm_film", lang), str(dm.get("film", "-"))],
+                [_tr("dm_min", lang), "%.0f %s" % (dm.get("dose_min", 0), unit)],
+                [_tr("dm_mean", lang), "%.0f %s" % (dm.get("dose_mean", 0), unit)],
+                [_tr("dm_max", lang), "%.0f %s" % (dm.get("dose_max", 0), unit)],
+            ]
         story.append(_make_table(info))
         story.append(Spacer(1, 6))
         if dosemap_image:
