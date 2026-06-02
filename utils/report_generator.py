@@ -72,6 +72,12 @@ R = {
     "field_full":   {"pt": "campo = filme", "en": "field = film"},
     "field_small":  {"pt": "campo < filme", "en": "field < film"},
     "curve_img":    {"pt": "Curva ajustada:", "en": "Fitted curve:"},
+    "sec_dosemap":  {"pt": "4. Mapa de Dose", "en": "4. Dose Map"},
+    "dm_film":      {"pt": "Filme", "en": "Film"},
+    "dm_min":       {"pt": "Dose minima", "en": "Min dose"},
+    "dm_mean":      {"pt": "Dose media", "en": "Mean dose"},
+    "dm_max":       {"pt": "Dose maxima", "en": "Max dose"},
+    "dm_img":       {"pt": "Distribuicao de dose:", "en": "Dose distribution:"},
     "footer":       {"pt": "Chromis WEB · AAPM TG-218 · Autor: MACIEL, J. O.",
                      "en": "Chromis WEB - AAPM TG-218 - Author: MACIEL, J. O."},
     "none":         {"pt": "(não informado)", "en": "(not provided)"},
@@ -83,7 +89,8 @@ def _tr(key, lang):
 
 
 def generate_report(study, lang="pt", selected_modules=None,
-                    logo_path=None, films_image=None, curve_image=None):
+                    logo_path=None, films_image=None, curve_image=None,
+                    dosemap_image=None):
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4,
                             topMargin=16*mm, bottomMargin=16*mm,
@@ -206,6 +213,28 @@ def generate_report(study, lang="pt", selected_modules=None,
             data.append(["#" + str(p["film"]), "%.0f" % p["dose"],
                          "%.1f" % p["pv_red"], "%.4f" % p["nod"]])
         story.append(_make_data_table(data))
+
+    # ===== Mapa de Dose =====
+    if want("dosemap"):
+        dm = study["dosemap"]
+        story.append(Paragraph(_tr("sec_dosemap", lang), h_sec))
+        unit = dm.get("unit", "cGy")
+        info = [
+            [_tr("dm_film", lang), str(dm.get("film", "-"))],
+            [_tr("dm_min", lang), "%.0f %s" % (dm.get("dose_min", 0), unit)],
+            [_tr("dm_mean", lang), "%.0f %s" % (dm.get("dose_mean", 0), unit)],
+            [_tr("dm_max", lang), "%.0f %s" % (dm.get("dose_max", 0), unit)],
+        ]
+        story.append(_make_table(info))
+        story.append(Spacer(1, 6))
+        if dosemap_image:
+            try:
+                story.append(Paragraph(_tr("dm_img", lang), cap))
+                dimg = _fit_image(dosemap_image, 130*mm, 110*mm)
+                dimg.hAlign = "CENTER"
+                story.append(dimg)
+            except Exception:
+                pass
 
     story.append(Spacer(1, 18))
     story.append(Paragraph(_tr("footer", lang), small))

@@ -28,6 +28,7 @@ def report_view(state, go):
         "setup": t("mod_setup"),
         "upload": t("mod_upload"),
         "calibration": t("mod_calibration"),
+        "dosemap": t("mod_dosemap"),
     }
     available = [m for m in reportable if m in done]
 
@@ -126,7 +127,8 @@ def report_view(state, go):
                                             selected_modules=selected_modules,
                                             logo_path=logo_path,
                                             films_image=gallery_for_report or state.get("films_overview_png"),
-                                            curve_image=curve_for_report)
+                                            curve_image=curve_for_report,
+                                            dosemap_image=state.get("dosemap_png"))
             except Exception as e:
                 st.error(f"Erro ao gerar o PDF: {e}")
                 return

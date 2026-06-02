@@ -209,6 +209,15 @@ STRINGS = {
     "rep_download":       {"pt": "Baixar PDF", "en": "Download PDF"},
     "up_field_label":     {"pt": "campo", "en": "field"},
     "rep_film_legend":    {"pt": "Parametros por filme", "en": "Per-film parameters"},
+    "dm_need_calib":      {"pt": "Conclua a Calibracao antes de gerar o mapa de dose.",
+                           "en": "Complete the Calibration before generating the dose map."},
+    "dm_need_zero":       {"pt": "Mapa de dose requer o filme de dose zero (background).",
+                           "en": "Dose map requires the zero-dose (background) film."},
+    "dm_select_film":     {"pt": "Selecione o filme para o mapa de dose", "en": "Select the film for the dose map"},
+    "dm_film":            {"pt": "Filme", "en": "Film"},
+    "dm_dose_min":        {"pt": "Dose minima", "en": "Min dose"},
+    "dm_dose_mean":       {"pt": "Dose media", "en": "Mean dose"},
+    "dm_dose_max":        {"pt": "Dose maxima", "en": "Max dose"},
 }
 
 
