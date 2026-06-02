@@ -61,6 +61,8 @@ def dosemap_view(state, go):
     )
 
     measure_img = None  # imagem completa onde detectar o filme
+    known_dose = None   # dose irradiada conhecida (opcional, p/ upload)
+    known_unit = "cGy"
 
     if source == t("dm_source_upload"):
         st.caption(t("dm_upload_hint"))
@@ -68,6 +70,16 @@ def dosemap_view(state, go):
                               key="dm_upload_widget")
         if up is not None:
             measure_img = bytes_to_array(up.getvalue(), up.name)
+
+        # Dose com que o filme foi irradiado (importante para validacao)
+        cda, cdb = st.columns([2, 1])
+        with cda:
+            known_dose = st.number_input(t("dm_known_dose"), min_value=0.0,
+                                         value=0.0, step=1.0, key="dm_known_dose_val")
+        with cdb:
+            known_unit = st.radio(t("up_unit"), ["cGy", "Gy"], horizontal=True,
+                                  key="dm_known_unit")
+        st.caption(t("dm_known_dose_hint"))
     else:
         saved_films = state.get("uploaded_films", [])
         if not saved_films:
@@ -134,6 +146,25 @@ def dosemap_view(state, go):
         c2.metric(t("dm_dose_mean"), f"{result['dose_mean']:.0f} {unit}")
         c3.metric(t("dm_dose_max"), f"{result['dose_max']:.0f} {unit}")
 
+    # Comparacao com a dose irradiada conhecida (se informada no upload)
+    known_cgy = None
+    if known_dose and known_dose > 0:
+        known_cgy = known_dose * 100.0 if known_unit == "Gy" else known_dose
+        # Dose central medida (mediana da regiao central do mapa)
+        import numpy as np
+        dm_abs = result["dose_map"]
+        h, w = dm_abs.shape
+        cy0, cy1 = int(h * 0.35), int(h * 0.65)
+        cx0, cx1 = int(w * 0.35), int(w * 0.65)
+        central = float(np.nanmedian(dm_abs[cy0:cy1, cx0:cx1]))
+        diff_pct = (central - known_cgy) / known_cgy * 100.0 if known_cgy else 0.0
+        st.markdown(f"**{t('dm_validation')}**")
+        v1, v2, v3 = st.columns(3)
+        v1.metric(t("dm_irradiated"), f"{known_cgy:.0f} cGy")
+        v2.metric(t("dm_measured_center"), f"{central:.0f} cGy")
+        v3.metric(t("dm_difference"), f"{diff_pct:+.1f}%")
+        st.caption(t("dm_diff_hint"))
+
     st.markdown(f"<hr style='border:none;border-top:0.5px solid {COLORS['border_soft']};margin:16px 0'>",
                 unsafe_allow_html=True)
     cc1, cc2 = st.columns([3, 1])
@@ -142,13 +173,13 @@ def dosemap_view(state, go):
             state["done"]["dosemap"] = True
             state["dosemap_png"] = png
             state["dosemap_is_percent"] = is_percent
-            _save_dosemap(state, sel, result, unit, is_percent)
+            _save_dosemap(state, sel, result, unit, is_percent, known_cgy)
             notify_user_activity(state.get("user", "?"), "Mapa de dose gerado",
                                  f"Filme {sel}")
             go("dashboard")
 
 
-def _save_dosemap(state, film_label, result, unit, is_percent):
+def _save_dosemap(state, film_label, result, unit, is_percent, known_cgy=None):
     try:
         import sys, os
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -161,6 +192,8 @@ def _save_dosemap(state, film_label, result, unit, is_percent):
                          "pct_min": result.get("pct_min"),
                          "pct_mean": result.get("pct_mean"),
                          "pct_max": result.get("pct_max")})
+        if known_cgy:
+            data["known_dose_cgy"] = known_cgy
         save_module(state, "dosemap", data)
     except Exception:
         pass

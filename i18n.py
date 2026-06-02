@@ -233,6 +233,15 @@ STRINGS = {
     "dm_percent":         {"pt": "Dose percentual (%)", "en": "Percentage dose (%)"},
     "dm_absolute":        {"pt": "Dose absoluta", "en": "Absolute dose"},
     "dm_ref":             {"pt": "Referencia (100%)", "en": "Reference (100%)"},
+    "dm_known_dose":      {"pt": "Dose irradiada no filme", "en": "Dose delivered to film"},
+    "dm_known_dose_hint": {"pt": "Informe a dose com que o filme de medida foi irradiado (opcional, para validar o mapa).",
+                           "en": "Enter the dose the measurement film was irradiated with (optional, to validate the map)."},
+    "dm_validation":      {"pt": "Validacao (centro do filme)", "en": "Validation (film center)"},
+    "dm_irradiated":      {"pt": "Dose irradiada", "en": "Delivered dose"},
+    "dm_measured_center": {"pt": "Dose medida (centro)", "en": "Measured dose (center)"},
+    "dm_difference":      {"pt": "Diferenca", "en": "Difference"},
+    "dm_diff_hint":       {"pt": "Diferenca entre a dose medida no centro e a dose irradiada informada.",
+                           "en": "Difference between the measured central dose and the entered delivered dose."},
 }
 
 
