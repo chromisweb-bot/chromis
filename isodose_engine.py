@@ -103,33 +103,23 @@ def render_isodose_png(dose_map, levels, basis="prescription",
                        prescription_dose=None, level_pcts=None,
                        unit="cGy", lang="pt", theme="dark",
                        linestyle="solid", colormap="jet",
-                       show_background=True, title=None):
+                       show_background=True, title=None,
+                       smooth_sigma=0.0):
     """
     Renderiza as curvas de isodose sobre o mapa de dose. Retorna bytes PNG.
 
-    Args:
-        dose_map: matriz 2D de dose (cGy/Gy).
-        levels: valores OU percentuais (ver basis) escolhidos pelo usuario.
-        basis: "prescription" | "max" | "absolute".
-        prescription_dose: necessario se basis == "prescription".
-        level_pcts: opcional - lista de % associada a cada nivel, usada SOMENTE
-                    para escolher a cor clinica (quando basis e percentual,
-                    level_pcts == levels). Se None, a cor vem do indice.
-        unit: unidade de dose para os rotulos (cGy/Gy).
-        lang: "pt" | "en" (titulo).
-        theme: "dark" | "light".
-        linestyle: "solid" (continua) ou "dashed" (tracejada).
-        colormap: paleta do mapa de dose de fundo (ex: jet, viridis, turbo...).
-        show_background: se True, mostra o heatmap por tras das curvas.
-        title: titulo opcional.
-
-    Returns:
-        bytes PNG.
+    smooth_sigma: desvio-padrao (em pixels) de um filtro gaussiano aplicado
+      APENAS para extrair as curvas, reduzindo o ruido de alta frequencia que
+      deixa as isodoses rendilhadas (comum em mapas de dose de grade grossa
+      interpolada). 0 = sem suavizacao. Um valor pequeno (0.5-1.5) limpa as
+      curvas sem deslocar as bordas de forma perceptivel. O heatmap de fundo
+      continua mostrando o dado ORIGINAL (a suavizacao nao altera a dose).
     """
     import io
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    import numpy as _np
 
     if theme == "dark":
         bg, fg = "#0d1117", "#e6edf3"
@@ -143,11 +133,20 @@ def render_isodose_png(dose_map, levels, basis="prescription",
 
     pairs = resolve_isodose_values(dose_map, levels, basis, prescription_dose)
 
+    # Mapa usado para EXTRAIR as curvas (opcionalmente suavizado).
+    dose_for_contour = dose_map
+    if smooth_sigma and smooth_sigma > 0:
+        try:
+            from scipy.ndimage import gaussian_filter
+            dose_for_contour = gaussian_filter(dose_map, sigma=float(smooth_sigma))
+        except Exception:
+            dose_for_contour = dose_map
+
     fig, ax = plt.subplots(figsize=(6.4, 5.2), dpi=100)
     fig.patch.set_facecolor(bg)
     ax.set_facecolor(bg)
 
-    # Fundo: heatmap do mapa de dose (opcional), com a paleta escolhida.
+    # Fundo: heatmap do mapa de dose ORIGINAL (sem suavizar), com a paleta.
     if show_background:
         im = ax.imshow(dose_map, cmap=colormap, origin="upper")
         cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
@@ -158,7 +157,6 @@ def render_isodose_png(dose_map, levels, basis="prescription",
     # Curvas de isodose: um contorno por nivel, com a cor clinica do nivel.
     handles, labels = [], []
     for idx, (lbl, val) in enumerate(pairs):
-        # Determina a cor: se houver % associada, usa a cor clinica daquele %.
         if level_pcts is not None and idx < len(level_pcts):
             try:
                 pct_int = int(round(float(level_pcts[idx])))
@@ -166,7 +164,6 @@ def render_isodose_png(dose_map, levels, basis="prescription",
                 pct_int = None
             color = color_for_level(pct_int, idx) if pct_int is not None else color_for_level(-1, idx)
         elif basis in ("prescription", "max"):
-            # levels ja sao percentuais
             try:
                 pct_int = int(round(float(levels[idx])))
                 color = color_for_level(pct_int, idx)
@@ -175,9 +172,8 @@ def render_isodose_png(dose_map, levels, basis="prescription",
         else:
             color = color_for_level(-1, idx)
 
-        cs = ax.contour(dose_map, levels=[val], colors=[color],
-                        linewidths=1.8, linestyles=ls, origin="upper")
-        # Item de legenda (uma linha por nivel).
+        ax.contour(dose_for_contour, levels=[val], colors=[color],
+                   linewidths=1.8, linestyles=ls, origin="upper")
         from matplotlib.lines import Line2D
         handles.append(Line2D([0], [0], color=color, lw=1.8, linestyle=ls))
         labels.append(f"{lbl}  ({val:.0f} {unit})")

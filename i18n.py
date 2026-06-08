@@ -291,6 +291,9 @@ STRINGS = {
     "iso_no_levels_in_range": {"pt": "Nenhum nivel cai dentro da faixa de dose do filme. Ajuste os niveis.",
                            "en": "No level falls within the film dose range. Adjust the levels."},
     "iso_summary":        {"pt": "Area por nivel de isodose", "en": "Area per isodose level"},
+    "iso_smooth":         {"pt": "Suavizacao das curvas", "en": "Curve smoothing"},
+    "iso_smooth_hint":    {"pt": "Reduz o ruido que deixa as isodoses rendilhadas (util em mapas de grade grossa). 0 = sem suavizacao. Nao altera a dose, so a extracao das curvas.",
+                           "en": "Reduces the noise that makes isodoses jagged (useful for coarse-grid maps). 0 = none. Does not change the dose, only curve extraction."},
 
     # ===== TPS (importador universal) =====
     "tps_title":          {"pt": "Importar dados do TPS", "en": "Import TPS data"},

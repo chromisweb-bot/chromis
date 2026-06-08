@@ -125,7 +125,7 @@ def tps_view(state, go):
                             level_pcts=DEFAULT_CLINICAL_LEVELS, unit="cGy",
                             lang=get_lang(), theme="dark", linestyle="solid",
                             colormap="jet", show_background=True,
-                            title=t("tps_isodose_preview"),
+                            title=t("tps_isodose_preview"), smooth_sigma=1.0,
                         )
                         st.image(iso_png, use_container_width=True)
                     except Exception as e:

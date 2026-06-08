@@ -103,6 +103,11 @@ def isodose_view(state, go):
 
     show_bg = st.checkbox(t("iso_show_bg"), value=True, key="iso_show_bg")
 
+    # Suavizacao para limpar curvas ruidosas (mapas de grade grossa interpolada).
+    smooth = st.slider(t("iso_smooth"), min_value=0.0, max_value=3.0,
+                       value=0.0, step=0.5, key="iso_smooth",
+                       help=t("iso_smooth_hint"))
+
     # ===== Render =====
     # Verifica se ha pelo menos um nivel dentro da faixa de dose do mapa
     try:
@@ -120,6 +125,7 @@ def isodose_view(state, go):
             level_pcts=levels if basis in ("prescription", "max") else None,
             unit=unit, lang=get_lang(), theme=theme_val,
             linestyle=linestyle, colormap=cmap, show_background=show_bg,
+            smooth_sigma=smooth,
         )
 
     st.image(png, use_container_width=True)

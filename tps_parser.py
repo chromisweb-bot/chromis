@@ -873,25 +873,58 @@ def read_dicom_plan(filepath_or_bytes, filename=None, **kwargs):
     points = []
     drs = getattr(ds, "DoseReferenceSequence", None)
     if drs:
+        # O Monaco/Elekta costuma gravar a referencia de dose em itens
+        # COMPLEMENTARES dentro da mesma sequencia:
+        #   - item "SITE": tem nome (DoseReferenceDescription) e dose prescrita
+        #     (TargetPrescriptionDose), mas SEM coordenadas;
+        #   - item "COORDINATES": tem as coordenadas do ponto, mas sem dose.
+        # Por isso NAO tratamos cada item como um ponto: coletamos nome+dose
+        # dos itens SITE e coordenadas dos itens COORDINATES, e combinamos.
+        sites = []   # (name, dose_gy)
+        coords = []  # (x,y,z)
+        loose = []   # itens que ja tem tudo (caso outro TPS faca diferente)
+
         for i, dr in enumerate(drs):
-            coords = getattr(dr, "DoseReferencePointCoordinates", None)
-            name = str(getattr(dr, "DoseReferenceDescription", "") or
-                       getattr(dr, "DoseReferenceStructureType", "") or
-                       f"Ponto {i+1}")
+            stype = str(getattr(dr, "DoseReferenceStructureType", "") or "").upper()
+            name = str(getattr(dr, "DoseReferenceDescription", "") or "").strip()
             dose_gy = getattr(dr, "TargetPrescriptionDose", None)
-            if dose_gy is not None:
+            try:
+                dose_gy = float(dose_gy) if dose_gy is not None else None
+            except Exception:
+                dose_gy = None
+            c = getattr(dr, "DoseReferencePointCoordinates", None)
+            xyz = None
+            if c is not None and len(c) >= 3:
                 try:
-                    dose_gy = float(dose_gy)
+                    xyz = (float(c[0]), float(c[1]), float(c[2]))
                 except Exception:
-                    dose_gy = None
-            pt = {"name": name}
-            if coords is not None and len(coords) >= 3:
-                pt["x_mm"] = float(coords[0])
-                pt["y_mm"] = float(coords[1])
-                pt["z_mm"] = float(coords[2])
+                    xyz = None
+
+            if xyz is not None and (name or dose_gy is not None):
+                # Item ja completo (outro TPS) -> ponto direto
+                loose.append({"name": name or f"Ponto {i+1}", "x_mm": xyz[0],
+                              "y_mm": xyz[1], "z_mm": xyz[2], "dose_gy": dose_gy})
+            elif stype == "COORDINATES" and xyz is not None:
+                coords.append(xyz)
+            elif stype == "SITE" or (name or dose_gy is not None):
+                sites.append((name, dose_gy))
+            elif xyz is not None:
+                coords.append(xyz)
+
+        # Combina: parear SITE (nome/dose) com COORDINATES (posicao) na ordem.
+        n = max(len(sites), len(coords))
+        for i in range(n):
+            name, dose_gy = sites[i] if i < len(sites) else ("", None)
+            xyz = coords[i] if i < len(coords) else None
+            pt = {"name": name or f"Ponto {i+1}"}
+            if xyz is not None:
+                pt["x_mm"], pt["y_mm"], pt["z_mm"] = xyz
             pt["dose_gy"] = dose_gy
-            pt["source_field"] = "DoseReferenceSequence"
+            pt["source_field"] = "DoseReferenceSequence (SITE+COORDINATES)"
             points.append(pt)
+
+        # Acrescenta itens que ja vieram completos
+        points.extend(loose)
 
     metadata = {
         "modality": str(getattr(ds, "Modality", "")),
