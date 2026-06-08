@@ -121,6 +121,13 @@ def dosemap_view(state, go):
     theme_val = "dark" if theme_choice == t("cal_theme_dark") else "light"
     is_percent = display_mode == t("dm_percent")
 
+    # Paleta de cores do mapa de dose (heatmap)
+    dm_cmap = st.selectbox(
+        t("dm_colormap"),
+        ["jet", "turbo", "viridis", "inferno", "plasma", "magma", "hot", "rainbow"],
+        index=0, key="dm_cmap",
+    )
+
     # Fonte do background (PV0). Ordem por robustez na pratica real:
     #  1) regiao nao irradiada do proprio filme = mesmo scan/tempo (mais robusto)
     #  2) upload de background separado = so funciona se mesmo lote E mesmo scan
@@ -183,9 +190,10 @@ def dosemap_view(state, go):
                                   normalize="max" if is_percent else None)
         if is_percent:
             png = render_dose_map_png(result["dose_map_pct"], unit, get_lang(),
-                                      theme_val, percent=True)
+                                      theme_val, percent=True, colormap=dm_cmap)
         else:
-            png = render_dose_map_png(result["dose_map"], unit, get_lang(), theme_val)
+            png = render_dose_map_png(result["dose_map"], unit, get_lang(),
+                                      theme_val, colormap=dm_cmap)
 
     st.image(png, use_container_width=True)
 
@@ -246,6 +254,12 @@ def dosemap_view(state, go):
             state["done"]["dosemap"] = True
             state["dosemap_png"] = png
             state["dosemap_is_percent"] = is_percent
+            # Guarda o mapa de dose ABSOLUTO (cGy/Gy) e metadados para o
+            # modulo de Isodose reaproveitar sem recalcular.
+            state["dosemap_array"] = result["dose_map"]
+            state["dosemap_unit"] = unit
+            if known_cgy:
+                state["dosemap_known_cgy"] = known_cgy
             _save_dosemap(state, sel, result, unit, is_percent, known_cgy)
             notify_user_activity(state.get("user", "?"), "Mapa de dose gerado",
                                  f"Filme {sel}")

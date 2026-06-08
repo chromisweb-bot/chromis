@@ -1,118 +1,228 @@
 """
-isodose_engine.py — Motor de Comparação de Isodose
+isodose_engine.py - Motor de Visualizacao de Curvas de Isodose
 
-Extrai curvas de isodose como contornos (linhas) e calcula
-sobreposição entre filme e TPS.
+Uma curva de isodose e a linha que conecta os pontos de mesma dose no mapa 2D
+(definicao classica: Niroomand-Rad/TG-55; pratica clinica de TPS). Os niveis
+sao tipicamente expressos como percentual de uma dose de referencia (a dose de
+prescricao ou a dose maxima/no isocentro), por exemplo 50/75/100/125/150%.
 
-Isodoses: 50%, 75%, 100%, 125%, 150% da dose de prescrição
+Este modulo:
+  1. Recebe um mapa de dose 2D (cGy/Gy) ja reconstruido (dose_map_engine.py).
+  2. Define os valores de dose de cada nivel de isodose, a partir de:
+       - percentual da dose de PRESCRICAO informada pelo usuario, OU
+       - percentual da dose MAXIMA do proprio filme, OU
+       - valores ABSOLUTOS (cGy/Gy) informados diretamente.
+  3. Renderiza as curvas sobre o mapa de dose (matplotlib.contour), com cores
+     clinicas por nivel e estilo de linha continuo ou tracejado.
+
+NADA de atalhos: as curvas sao os contornos reais de iso-nivel do campo escalar
+de dose, exatamente como em qualquer TPS. A comparacao quantitativa com o TPS
+(coeficiente de Dice/Jaccard entre regioes) sera adicionada em modulo proprio.
 """
 
 import numpy as np
-from skimage.measure import find_contours
+
+# Cores clinicas convencionais por nivel de isodose (%).
+# Frias (azul) nas doses baixas -> quentes (vermelho) nas doses altas,
+# convencao comum em planejamento. Niveis fora desta tabela recebem cor
+# atribuida automaticamente pela paleta.
+CLINICAL_ISODOSE_COLORS = {
+    30:  "#2166ac",   # azul
+    50:  "#4393c3",   # azul claro
+    75:  "#2ca02c",   # verde
+    90:  "#bcbd22",   # amarelo-esverdeado
+    95:  "#e6c200",   # amarelo
+    100: "#d62728",   # vermelho (dose de referencia)
+    105: "#e377c2",   # rosa
+    110: "#ff7f0e",   # laranja
+    125: "#9467bd",   # roxo
+    150: "#8c564b",   # marrom
+}
+
+# Niveis clinicos padrao (editaveis pelo usuario na interface).
+DEFAULT_CLINICAL_LEVELS = [50, 75, 100, 125, 150]
 
 
-def extract_isodose_contours(dose_map, prescription_dose, levels=[50, 75, 100, 125, 150]):
+def color_for_level(pct, fallback_index=0):
+    """Retorna a cor clinica de um nivel (%). Se nao houver na tabela, gera uma."""
+    if pct in CLINICAL_ISODOSE_COLORS:
+        return CLINICAL_ISODOSE_COLORS[pct]
+    # Cor automatica estavel para niveis nao tabelados.
+    palette = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+               "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"]
+    return palette[fallback_index % len(palette)]
+
+
+def resolve_isodose_values(dose_map, levels, basis="prescription",
+                           prescription_dose=None):
     """
-    Extrai curvas de isodose como contornos (linhas).
-    
+    Converte a lista de niveis em valores de dose absolutos (na unidade do mapa).
+
     Args:
-        dose_map: np.ndarray — mapa de dose em Gy
-        prescription_dose: dose de prescrição em Gy (define 100%)
-        levels: lista de percentuais [50, 75, 100, 125, 150]
-        
+        dose_map: matriz 2D de dose (cGy ou Gy).
+        levels: lista de niveis. Se basis e percentual, sao % (ex: [50,75,100]);
+                se basis == "absolute", sao valores de dose ja na unidade do mapa.
+        basis: "prescription" (% da Rx), "max" (% da dose maxima do filme),
+               ou "absolute" (os proprios valores).
+        prescription_dose: dose de prescricao (mesma unidade do mapa); obrigatorio
+               quando basis == "prescription".
+
     Returns:
-        dict: {percentual: lista_de_contornos}
+        lista de tuplas (rotulo, valor_de_dose), ordenada por valor crescente.
+        O rotulo e o que sera exibido (ex: "100%" ou "1000 cGy").
     """
-    contours = {}
-    for pct in levels:
-        dose_val = prescription_dose * (pct / 100.0)
-        # find_contours retorna lista de arrays (N, 2) com coordenadas [row, col]
-        ct = find_contours(dose_map, level=dose_val)
-        if len(ct) > 0:
-            contours[pct] = ct
-    return contours
+    pairs = []
+    if basis == "absolute":
+        for v in levels:
+            v = float(v)
+            pairs.append((f"{v:g}", v))
+    elif basis == "max":
+        # Usa o percentil 99 como referencia (evita outliers/artefatos), mesma
+        # convencao do dose_map_engine para o modo percentual.
+        ref = float(np.nanpercentile(dose_map, 99))
+        ref = max(ref, 1e-6)
+        for p in levels:
+            pairs.append((f"{p:g}%", ref * (float(p) / 100.0)))
+    else:  # "prescription"
+        if prescription_dose is None:
+            raise ValueError("prescription_dose e obrigatorio quando basis='prescription'.")
+        ref = max(float(prescription_dose), 1e-6)
+        for p in levels:
+            pairs.append((f"{p:g}%", ref * (float(p) / 100.0)))
+
+    # Remove niveis fora da faixa de dose presente no mapa (nao ha curva possivel).
+    dmin = float(np.nanmin(dose_map))
+    dmax = float(np.nanmax(dose_map))
+    valid = [(lbl, val) for (lbl, val) in pairs if dmin <= val <= dmax]
+
+    valid.sort(key=lambda x: x[1])
+    return valid
 
 
-def contour_area_pixels(contour_list):
-    """Calcula área total em pixels de uma lista de contornos (fórmula de shoelace)."""
-    total = 0
-    for contour in contour_list:
-        if len(contour) < 3:
-            continue
-        x = contour[:, 1]
-        y = contour[:, 0]
-        area = 0.5 * abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
-        total += area
-    return total
-
-
-def compare_isodose(
-    dose_film,
-    dose_tps,
-    prescription_dose,
-    levels=[50, 75, 100, 125, 150],
-    tolerance_mm=3.0,
-    res_mm=0.35,
-):
+def render_isodose_png(dose_map, levels, basis="prescription",
+                       prescription_dose=None, level_pcts=None,
+                       unit="cGy", lang="pt", theme="dark",
+                       linestyle="solid", colormap="jet",
+                       show_background=True, title=None):
     """
-    Compara isodoses entre filme e TPS usando contornos.
-    
+    Renderiza as curvas de isodose sobre o mapa de dose. Retorna bytes PNG.
+
     Args:
-        dose_film: mapa de dose do filme (Gy)
-        dose_tps: mapa de dose do TPS (Gy)
-        prescription_dose: dose de prescrição em Gy (define 100%)
-        levels: [50, 75, 100, 125, 150]
-        tolerance_mm: tolerância espacial em mm
-        res_mm: resolução em mm/pixel
-        
+        dose_map: matriz 2D de dose (cGy/Gy).
+        levels: valores OU percentuais (ver basis) escolhidos pelo usuario.
+        basis: "prescription" | "max" | "absolute".
+        prescription_dose: necessario se basis == "prescription".
+        level_pcts: opcional - lista de % associada a cada nivel, usada SOMENTE
+                    para escolher a cor clinica (quando basis e percentual,
+                    level_pcts == levels). Se None, a cor vem do indice.
+        unit: unidade de dose para os rotulos (cGy/Gy).
+        lang: "pt" | "en" (titulo).
+        theme: "dark" | "light".
+        linestyle: "solid" (continua) ou "dashed" (tracejada).
+        colormap: paleta do mapa de dose de fundo (ex: jet, viridis, turbo...).
+        show_background: se True, mostra o heatmap por tras das curvas.
+        title: titulo opcional.
+
     Returns:
-        dict com results, contours_film, contours_tps
+        bytes PNG.
     """
-    # Extrair contornos
-    ct_film = extract_isodose_contours(dose_film, prescription_dose, levels)
-    ct_tps = extract_isodose_contours(dose_tps, prescription_dose, levels)
-    
-    results = []
-    
-    for pct in levels:
-        film_list = ct_film.get(pct, [])
-        tps_list = ct_tps.get(pct, [])
-        
-        area_film = contour_area_pixels(film_list)
-        area_tps = contour_area_pixels(tps_list)
-        
-        # Coincidência: se ambos têm contornos, calcular overlap aproximado
-        if area_film > 0 and area_tps > 0:
-            # Overlap aproximado: interseção / união das áreas
-            # Interseção = área da menor (aproximação conservadora)
-            intersection = min(area_film, area_tps) * 0.8  # fator conservador
-            union = area_film + area_tps - intersection
-            coincidence = 100.0 * intersection / union if union > 0 else 0.0
-            
-            # Distância: diferença de áreas / perímetro médio
-            perim_film = sum(len(c) for c in film_list) if film_list else 1
-            perim_tps = sum(len(c) for c in tps_list) if tps_list else 1
-            mean_perim = (perim_film + perim_tps) / 2.0
-            area_diff = abs(area_film - area_tps)
-            mean_dist = (area_diff / mean_perim) * res_mm if mean_perim > 0 else 0.0
+    import io
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    if theme == "dark":
+        bg, fg = "#0d1117", "#e6edf3"
+    else:
+        bg, fg = "#ffffff", "#1e293b"
+
+    if title is None:
+        title = "Curvas de Isodose" if lang == "pt" else "Isodose Curves"
+
+    ls = "--" if linestyle in ("dashed", "--", "tracejada") else "-"
+
+    pairs = resolve_isodose_values(dose_map, levels, basis, prescription_dose)
+
+    fig, ax = plt.subplots(figsize=(6.4, 5.2), dpi=100)
+    fig.patch.set_facecolor(bg)
+    ax.set_facecolor(bg)
+
+    # Fundo: heatmap do mapa de dose (opcional), com a paleta escolhida.
+    if show_background:
+        im = ax.imshow(dose_map, cmap=colormap, origin="upper")
+        cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        cbar.set_label(f"Dose ({unit})", color=fg)
+        cbar.ax.yaxis.set_tick_params(color=fg)
+        plt.setp(plt.getp(cbar.ax.axes, "yticklabels"), color=fg)
+
+    # Curvas de isodose: um contorno por nivel, com a cor clinica do nivel.
+    handles, labels = [], []
+    for idx, (lbl, val) in enumerate(pairs):
+        # Determina a cor: se houver % associada, usa a cor clinica daquele %.
+        if level_pcts is not None and idx < len(level_pcts):
+            try:
+                pct_int = int(round(float(level_pcts[idx])))
+            except Exception:
+                pct_int = None
+            color = color_for_level(pct_int, idx) if pct_int is not None else color_for_level(-1, idx)
+        elif basis in ("prescription", "max"):
+            # levels ja sao percentuais
+            try:
+                pct_int = int(round(float(levels[idx])))
+                color = color_for_level(pct_int, idx)
+            except Exception:
+                color = color_for_level(-1, idx)
         else:
-            coincidence = 0.0
-            mean_dist = tolerance_mm if (area_film > 0 or area_tps > 0) else 0.0
-        
-        results.append({
-            'level': pct,
-            'coincidence': min(coincidence, 100.0),
-            'mean_distance_mm': mean_dist,
-            'area_film_px': area_film,
-            'area_tps_px': area_tps,
-            'n_contours_film': len(film_list),
-            'n_contours_tps': len(tps_list),
-            'dose_value': prescription_dose * (pct / 100.0),
+            color = color_for_level(-1, idx)
+
+        cs = ax.contour(dose_map, levels=[val], colors=[color],
+                        linewidths=1.8, linestyles=ls, origin="upper")
+        # Item de legenda (uma linha por nivel).
+        from matplotlib.lines import Line2D
+        handles.append(Line2D([0], [0], color=color, lw=1.8, linestyle=ls))
+        labels.append(f"{lbl}  ({val:.0f} {unit})")
+
+    ax.set_title(title, color=fg, fontsize=12, fontweight="bold")
+    ax.set_xticks([]); ax.set_yticks([])
+
+    if handles:
+        leg = ax.legend(handles, labels, loc="upper right", fontsize=8,
+                        framealpha=0.85, facecolor=bg, edgecolor=fg,
+                        labelcolor=fg, title="Isodoses")
+        if leg and leg.get_title():
+            leg.get_title().set_color(fg)
+
+    fig.tight_layout()
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=100, bbox_inches="tight", facecolor=bg)
+    plt.close(fig)
+    return buf.getvalue()
+
+
+def isodose_summary(dose_map, levels, basis="prescription",
+                    prescription_dose=None, res_mm=None):
+    """
+    Resumo textual: para cada nivel, o valor de dose e a area contida
+    (pixels com dose >= valor), opcionalmente convertida para cm^2.
+
+    Args:
+        res_mm: mm/pixel; se informado, calcula area em cm^2.
+
+    Returns:
+        lista de dicts: {label, dose_value, n_pixels, area_cm2 (ou None)}.
+    """
+    pairs = resolve_isodose_values(dose_map, levels, basis, prescription_dose)
+    out = []
+    for lbl, val in pairs:
+        mask = dose_map >= val
+        n_px = int(np.count_nonzero(mask))
+        area_cm2 = None
+        if res_mm:
+            area_cm2 = n_px * (float(res_mm) / 10.0) ** 2  # (mm->cm)^2
+        out.append({
+            "label": lbl,
+            "dose_value": float(val),
+            "n_pixels": n_px,
+            "area_cm2": area_cm2,
         })
-    
-    return {
-        'results': results,
-        'contours_film': ct_film,
-        'contours_tps': ct_tps,
-        'prescription_dose': prescription_dose,
-    }
+    return out

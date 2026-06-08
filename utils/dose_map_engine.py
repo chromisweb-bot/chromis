@@ -92,10 +92,11 @@ def compute_dose_map(film_image, pv_zero, model_obj, denoise=True,
 
 
 def render_dose_map_png(dose_map, unit="cGy", lang="pt", theme="dark",
-                        title=None, percent=False):
+                        title=None, percent=False, colormap="jet"):
     """
     Renderiza o mapa de dose como imagem PNG (heatmap) com barra de cor.
     Se percent=True, o dose_map ja esta em % e a barra mostra %.
+    colormap: paleta de cores do matplotlib (jet, viridis, turbo, inferno, etc).
     Retorna bytes PNG.
     """
     import io
@@ -119,7 +120,7 @@ def render_dose_map_png(dose_map, unit="cGy", lang="pt", theme="dark",
     fig.patch.set_facecolor(bg)
     ax.set_facecolor(bg)
 
-    im = ax.imshow(dose_map, cmap="jet", origin="upper")
+    im = ax.imshow(dose_map, cmap=colormap, origin="upper")
     ax.set_title(title, color=fg, fontsize=12, fontweight="bold")
     ax.set_xticks([]); ax.set_yticks([])
 

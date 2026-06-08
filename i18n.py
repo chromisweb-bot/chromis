@@ -260,6 +260,37 @@ STRINGS = {
     "dm_bg_upload_warn":  {"pt": "Atencao: o filme de background deve ser do MESMO LOTE e escaneado JUNTO (mesmo tempo pos-irradiacao, mesmo DPI) que o filme de medida. Caso contrario o erro aumenta.",
                            "en": "Warning: the background film must be from the SAME LOT and scanned TOGETHER (same post-irradiation time, same DPI) as the measurement film. Otherwise the error increases."},
 
+    "dm_colormap":        {"pt": "Paleta de cores", "en": "Color palette"},
+
+    # ===== Isodose =====
+    "iso_need_dosemap":   {"pt": "O mapa de isodose depende do mapa de dose. Gere o mapa de dose primeiro.",
+                           "en": "The isodose map depends on the dose map. Generate the dose map first."},
+    "iso_go_dosemap":     {"pt": "Ir para o Mapa de Dose", "en": "Go to Dose Map"},
+    "iso_basis":          {"pt": "Base dos niveis de isodose", "en": "Isodose level basis"},
+    "iso_basis_q":        {"pt": "Os niveis sao calculados em relacao a:",
+                           "en": "Levels are computed relative to:"},
+    "iso_basis_rx":       {"pt": "% da dose de prescricao", "en": "% of prescription dose"},
+    "iso_basis_max":      {"pt": "% da dose maxima do filme", "en": "% of film max dose"},
+    "iso_basis_abs":      {"pt": "Valores absolutos (cGy/Gy)", "en": "Absolute values (cGy/Gy)"},
+    "iso_rx_dose":        {"pt": "Dose de prescricao", "en": "Prescription dose"},
+    "iso_need_rx":        {"pt": "Informe a dose de prescricao para continuar.",
+                           "en": "Enter the prescription dose to continue."},
+    "iso_levels":         {"pt": "Niveis de isodose", "en": "Isodose levels"},
+    "iso_levels_pct_hint":{"pt": "Separe por virgula. Padrao clinico: 50, 75, 100, 125, 150 (%).",
+                           "en": "Comma-separated. Clinical default: 50, 75, 100, 125, 150 (%)."},
+    "iso_levels_abs_hint":{"pt": "Separe por virgula, valores em {unit}.",
+                           "en": "Comma-separated, values in {unit}."},
+    "iso_levels_err":     {"pt": "Niveis invalidos. Use numeros separados por virgula.",
+                           "en": "Invalid levels. Use comma-separated numbers."},
+    "iso_levels_empty":   {"pt": "Informe ao menos um nivel.", "en": "Enter at least one level."},
+    "iso_linestyle":      {"pt": "Estilo da linha", "en": "Line style"},
+    "iso_solid":          {"pt": "Continua", "en": "Solid"},
+    "iso_dashed":         {"pt": "Tracejada", "en": "Dashed"},
+    "iso_colormap":       {"pt": "Paleta de cores", "en": "Color palette"},
+    "iso_show_bg":        {"pt": "Mostrar mapa de dose ao fundo", "en": "Show dose map background"},
+    "iso_no_levels_in_range": {"pt": "Nenhum nivel cai dentro da faixa de dose do filme. Ajuste os niveis.",
+                           "en": "No level falls within the film dose range. Adjust the levels."},
+    "iso_summary":        {"pt": "Area por nivel de isodose", "en": "Area per isodose level"},
 
 }
 
