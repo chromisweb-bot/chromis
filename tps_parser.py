@@ -180,6 +180,8 @@ def detect_format(filepath_or_bytes, filename=None):
     fname = _get_filename(filepath_or_bytes, filename)
     ext = Path(fname).suffix.lower()
 
+    if ext == '.all':
+        return 'all_dose'
     if ext == '.dcm':
         # Pode ser RT Dose ou RT Structure — detectar pelo conteúdo
         try:
@@ -209,6 +211,9 @@ def detect_format(filepath_or_bytes, filename=None):
             content = _read_raw(filepath_or_bytes)
             if b'DICM' in content[:132]:
                 return 'dicom_dose'
+            head = content[:600].decode('latin-1', errors='ignore')
+            if ('DosePtsxy' in head) or ('DoseUnits' in head and 'DoseResmm' in head):
+                return 'all_dose'
         except Exception:
             pass
         return 'csv_matrix'
@@ -657,25 +662,128 @@ def read_image_dose(filepath_or_bytes, filename=None, resolution_mm=1.0,
 # FUNÇÃO UNIVERSAL
 # ══════════════════════════════════════════════════════════════════════════════
 
-def read_tps(filepath_or_bytes, filename=None, **kwargs):
+def read_all_dose(filepath_or_bytes, filename=None, **kwargs):
     """
-    Função universal: detecta formato e lê automaticamente.
+    Le um arquivo de dose em texto do tipo .ALL (export de TPS, ex: CMS/XiO).
 
-    Para DICOM RT Dose do Monaco:
-        dist, info = read_tps(arquivo_dcm)
+    Estrutura do arquivo:
+      - Linhas de cabecalho "Chave,valor[,valor...]" (ex: DoseUnits, DosePtsxy,
+        DoseResmm, Upperleft, PlaneDesc, PatientID).
+      - Em seguida, a matriz de dose: uma linha por fileira, valores separados
+        por virgula. As dimensoes batem com DosePtsxy (largura, altura).
 
-    Para RT Structure (isodoses):
-        iso = read_tps(arquivo_struct_dcm, z_target_mm=0.0)
-
-    Para pontos de dose CSV:
-        pts = read_tps(arquivo_csv)
+    O parsing e ROBUSTO: detecta dinamicamente onde o cabecalho termina e a
+    matriz comeca; valida as dimensoes; le a resolucao espacial e a unidade.
 
     Returns:
-        DoseDistribution, IsodoseContours ou DosePoints dependendo do formato
+        DoseDistribution (dose internamente em Gy).
+    """
+    content = _read_raw(filepath_or_bytes)
+    text = content.decode("latin-1", errors="ignore")
+    lines = text.splitlines()
+
+    def _isnum(s):
+        try:
+            float(s)
+            return True
+        except Exception:
+            return False
+
+    header = {}
+    data_start = None
+    for i, ln in enumerate(lines):
+        ln = ln.replace("\r", "").strip()
+        if not ln:
+            continue
+        parts = [p.strip() for p in ln.split(",")]
+        nums = sum(1 for p in parts[:12] if _isnum(p))
+        if nums >= 10 and len(parts) > 50:
+            data_start = i
+            break
+        if len(parts) >= 2:
+            header[parts[0]] = parts[1:]
+
+    if data_start is None:
+        raise ValueError("Arquivo .ALL: nao foi possivel localizar a matriz de dose.")
+
+    rows = []
+    for ln in lines[data_start:]:
+        ln = ln.replace("\r", "").strip()
+        if not ln:
+            continue
+        vals = [v for v in ln.split(",") if v.strip() != ""]
+        if vals and all(_isnum(v) for v in vals):
+            rows.append([float(v) for v in vals])
+
+    if not rows:
+        raise ValueError("Arquivo .ALL: matriz de dose vazia.")
+
+    lens = [len(r) for r in rows]
+    ncol = max(set(lens), key=lens.count)
+    rows = [r for r in rows if len(r) == ncol]
+    dose_cgy = np.array(rows, dtype=np.float64)
+
+    res_mm = 1.0
+    if "DoseResmm" in header:
+        try:
+            res_mm = float(header["DoseResmm"][0])
+        except Exception:
+            pass
+
+    units_field = " ".join(header.get("DoseUnits", [])).lower()
+    if "cgy" in units_field or not units_field:
+        dose_gy = dose_cgy / 100.0
+        unit_src = "cGy"
+    elif "gy" in units_field:
+        dose_gy = dose_cgy
+        unit_src = "Gy"
+    else:
+        dose_gy = dose_cgy / 100.0
+        unit_src = "cGy (assumido)"
+
+    declared = header.get("DosePtsxy")
+    valid_dims = None
+    if declared and len(declared) >= 2:
+        try:
+            w_dec, h_dec = int(float(declared[0])), int(float(declared[1]))
+            valid_dims = (dose_gy.shape == (h_dec, w_dec))
+        except Exception:
+            valid_dims = None
+
+    metadata = {
+        "patient_id": header.get("PatientID", ["?"])[0],
+        "plane_desc": header.get("PlaneDesc", ["?"])[0],
+        "unit_source": unit_src,
+        "declared_pts_xy": declared,
+        "dims_match_declared": valid_dims,
+        "datetime": header.get("DateTime", ["?"])[0] if "DateTime" in header else None,
+        "raw_header_keys": list(header.keys()),
+    }
+
+    return DoseDistribution(
+        dose=dose_gy,
+        resolution_mm=res_mm,
+        origin_mm=(0.0, 0.0),
+        source="all_text_tps",
+        metadata=metadata,
+    )
+
+
+def read_tps(filepath_or_bytes, filename=None, **kwargs):
+    """
+    Funcao universal: detecta formato e le automaticamente.
+
+    Suporta: DICOM RT Dose, DICOM RT Structure, CSV de pontos, CSV matriz,
+    imagem, e matriz de dose .ALL (CMS/XiO e similares).
+
+    Returns:
+        DoseDistribution, IsodoseContours ou DosePoints conforme o formato.
     """
     fmt = detect_format(filepath_or_bytes, filename)
 
-    if fmt == 'dicom_dose':
+    if fmt == 'all_dose':
+        return read_all_dose(filepath_or_bytes, filename, **kwargs)
+    elif fmt == 'dicom_dose':
         return read_dicom_dose(filepath_or_bytes, filename, **kwargs)
     elif fmt == 'dicom_struct':
         return read_dicom_struct(filepath_or_bytes, filename, **kwargs)

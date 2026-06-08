@@ -1,36 +1,158 @@
-"""tps_view.py — Tela de Planejamento do TPS (Monaco)."""
+"""tps_view.py - Importador universal de dados do TPS.
+
+O usuario anexa QUALQUER arquivo que tiver do TPS (.ALL, .dcm, .csv, .txt,
+imagem) e o software identifica o formato e extrai o que houver: mapa de dose,
+resolucao espacial, unidade, plano/corte, isodoses ou pontos. Nada e assumido:
+o parser detecta e valida cada arquivo.
+"""
 import streamlit as st
-from i18n import t
+from i18n import t, get_lang
 from theme import COLORS
 from auth import notify_user_activity
 
 
 def tps_view(state, go):
     st.markdown(f"<div style='font-size:12px;color:{COLORS['text_muted']};margin-bottom:14px'>"
-                f"Etapa 2 · {t('group_config')} · Monaco</div>", unsafe_allow_html=True)
+                f"{t('group_config')}</div>", unsafe_allow_html=True)
 
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.markdown(f"**{t('mod_tps')}**")
-        st.caption("Exporte do Monaco e carregue aqui")
-        st.file_uploader("RT Dose (.dcm)", type=["dcm"], key="tps_rtdose")
-        st.file_uploader("Isodoses — RT Structure (.dcm)", type=["dcm"], key="tps_rtstruct")
-        st.file_uploader("Pontos de dose (.csv) — opcional", type=["csv", "txt"], key="tps_points")
+    st.markdown(f"**{t('tps_title')}**")
+    st.caption(t("tps_hint"))
 
-    with col_b:
-        st.markdown("**Pré-visualização do plano**")
-        if st.session_state.get("tps_rtdose"):
-            st.info("Pré-visualização será exibida após a integração do parser DICOM.")
-        else:
-            st.markdown(f"<div style='background:{COLORS['bg_surface']};border-radius:8px;"
-                        f"padding:40px;text-align:center;color:{COLORS['text_muted']};font-size:12px'>"
-                        f"Carregue o RT Dose para visualizar</div>", unsafe_allow_html=True)
+    try:
+        import sys, os
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+        import tps_parser as tp
+        import numpy as np
+    except Exception as e:
+        st.error(f"Erro ao carregar o parser de TPS: {e}")
+        return
 
-    st.markdown(f"<hr style='border:none;border-top:0.5px solid {COLORS['border_soft']};margin:18px 0'>",
+    files = st.file_uploader(
+        t("tps_upload"),
+        type=["all", "dcm", "csv", "txt", "png", "jpg", "jpeg", "tif", "tiff"],
+        accept_multiple_files=True,
+        key="tps_files",
+    )
+
+    if not files:
+        st.markdown(f"<div style='background:{COLORS['bg_surface']};border-radius:8px;"
+                    f"padding:32px;text-align:center;color:{COLORS['text_muted']};font-size:12px'>"
+                    f"{t('tps_waiting')}</div>", unsafe_allow_html=True)
+        return
+
+    # Acumula o que for extraido de cada arquivo
+    extracted = state.setdefault("tps_extracted", {})
+    dose_dists = []   # lista de DoseDistribution
+    contours = []     # IsodoseContours
+    points = []       # DosePoints
+
+    for up in files:
+        data = up.getvalue()
+        name = up.name
+        st.markdown(f"<hr style='border:none;border-top:0.5px solid {COLORS['border_soft']};margin:12px 0'>",
+                    unsafe_allow_html=True)
+        st.markdown(f"**{name}**")
+        try:
+            fmt = tp.detect_format(data, filename=name)
+        except Exception as e:
+            st.warning(f"{t('tps_unreadable')}: {e}")
+            continue
+
+        st.caption(f"{t('tps_detected')}: `{fmt}`")
+
+        try:
+            result = tp.read_tps(data, filename=name)
+        except Exception as e:
+            st.warning(f"{t('tps_read_err')}: {e}")
+            continue
+
+        # DoseDistribution (mapa de dose)
+        if hasattr(result, "dose") and hasattr(result, "resolution_mm"):
+            s = result.summary()
+            dose_dists.append((name, result))
+            cA, cB, cC = st.columns(3)
+            cA.metric(t("tps_shape"), f"{s['shape'][0]}×{s['shape'][1]}")
+            cB.metric(t("tps_res"), f"{s['resolution_mm']:.1f} mm")
+            cC.metric(t("tps_maxdose"), f"{s['max_dose_cgy']:.0f} cGy")
+            meta = result.metadata or {}
+            if meta.get("plane_desc"):
+                st.caption(f"{t('tps_plane')}: {meta['plane_desc']}  ·  "
+                           f"{t('tps_patient')}: {meta.get('patient_id','?')}")
+            if meta.get("dims_match_declared") is False:
+                st.warning(t("tps_dims_warn"))
+            # Pre-visualizacao do mapa de dose
+            try:
+                from utils.dose_map_engine import render_dose_map_png
+                # dose interna em Gy -> mostrar em cGy
+                png = render_dose_map_png(result.dose * 100.0, unit="cGy",
+                                          lang=get_lang(), theme="dark",
+                                          title=f"{t('tps_dose_map')} — {name}")
+                st.image(png, use_container_width=True)
+            except Exception as e:
+                st.caption(f"({t('tps_preview_fail')}: {e})")
+
+        # IsodoseContours
+        elif hasattr(result, "contours") or result.__class__.__name__ == "IsodoseContours":
+            contours.append((name, result))
+            st.success(t("tps_got_isodose"))
+
+        # DosePoints
+        elif result.__class__.__name__ == "DosePoints":
+            points.append((name, result))
+            st.success(t("tps_got_points"))
+
+    # Resumo geral
+    st.markdown(f"<hr style='border:none;border-top:0.5px solid {COLORS['border_soft']};margin:16px 0'>",
                 unsafe_allow_html=True)
+    n_dose = len(dose_dists)
+    st.markdown(f"**{t('tps_summary')}:** "
+                f"{n_dose} {t('tps_dose_maps')}, {len(contours)} {t('tps_isodoses')}, "
+                f"{len(points)} {t('tps_pointsets')}")
+
+    # Se houver mais de um mapa de dose, deixa escolher qual e o principal
+    chosen_idx = 0
+    if n_dose > 1:
+        labels = [nm for nm, _ in dose_dists]
+        chosen = st.selectbox(t("tps_choose_main"), labels, key="tps_main_dose")
+        chosen_idx = labels.index(chosen)
+
     c1, c2 = st.columns([4, 1])
     with c2:
-        if st.button(t("continue"), use_container_width=True, type="primary"):
+        if st.button(t("continue"), use_container_width=True, type="primary",
+                     disabled=(n_dose == 0 and not contours and not points)):
+            # Guarda o principal mapa de dose (em cGy) para uso na comparacao
+            if n_dose > 0:
+                nm, dist = dose_dists[chosen_idx]
+                state["tps_dose_cgy"] = (dist.dose * 100.0)
+                state["tps_dose_res_mm"] = dist.resolution_mm
+                state["tps_dose_name"] = nm
+                state["tps_dose_meta"] = dist.metadata
             state["done"]["tps"] = True
-            notify_user_activity(state.get("user", "?"), "Planejamento TPS carregado")
+            _save_tps(state, dose_dists, contours, points, chosen_idx)
+            notify_user_activity(state.get("user", "?"), "TPS importado",
+                                 f"{n_dose} mapa(s) de dose")
             go("dashboard")
+
+
+def _save_tps(state, dose_dists, contours, points, chosen_idx):
+    try:
+        import sys, os
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+        from utils.study_store import save_module
+        main = None
+        if dose_dists:
+            nm, dist = dose_dists[chosen_idx]
+            s = dist.summary()
+            main = {"name": nm, "shape": list(s["shape"]),
+                    "resolution_mm": s["resolution_mm"],
+                    "max_dose_cgy": s["max_dose_cgy"],
+                    "plane": (dist.metadata or {}).get("plane_desc")}
+        data = {
+            "n_dose_maps": len(dose_dists),
+            "n_isodoses": len(contours),
+            "n_pointsets": len(points),
+            "main_dose": main,
+        }
+        save_module(state, "tps", data)
+    except Exception:
+        pass

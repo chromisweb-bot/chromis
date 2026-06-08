@@ -292,6 +292,32 @@ STRINGS = {
                            "en": "No level falls within the film dose range. Adjust the levels."},
     "iso_summary":        {"pt": "Area por nivel de isodose", "en": "Area per isodose level"},
 
+    # ===== TPS (importador universal) =====
+    "tps_title":          {"pt": "Importar dados do TPS", "en": "Import TPS data"},
+    "tps_hint":           {"pt": "Anexe os arquivos que voce tiver do planejamento (qualquer formato: .ALL, .dcm, .csv, .txt, imagem). O software identifica e extrai o que houver em cada um.",
+                           "en": "Attach whatever planning files you have (any format: .ALL, .dcm, .csv, .txt, image). The software detects and extracts whatever each one contains."},
+    "tps_upload":         {"pt": "Arquivos do TPS (pode anexar varios)", "en": "TPS files (you can attach several)"},
+    "tps_waiting":        {"pt": "Aguardando arquivos do TPS...", "en": "Waiting for TPS files..."},
+    "tps_detected":       {"pt": "Formato detectado", "en": "Detected format"},
+    "tps_unreadable":     {"pt": "Nao foi possivel identificar o arquivo", "en": "Could not identify the file"},
+    "tps_read_err":       {"pt": "Erro ao ler o arquivo", "en": "Error reading the file"},
+    "tps_shape":          {"pt": "Dimensoes", "en": "Dimensions"},
+    "tps_res":            {"pt": "Resolucao", "en": "Resolution"},
+    "tps_maxdose":        {"pt": "Dose maxima", "en": "Max dose"},
+    "tps_plane":          {"pt": "Plano/corte", "en": "Plane/slice"},
+    "tps_patient":        {"pt": "Paciente", "en": "Patient"},
+    "tps_dims_warn":      {"pt": "As dimensoes lidas nao batem com o cabecalho do arquivo. Confira o arquivo.",
+                           "en": "The parsed dimensions do not match the file header. Please check the file."},
+    "tps_dose_map":       {"pt": "Mapa de dose do TPS", "en": "TPS dose map"},
+    "tps_preview_fail":   {"pt": "pre-visualizacao indisponivel", "en": "preview unavailable"},
+    "tps_got_isodose":    {"pt": "Curvas de isodose extraidas.", "en": "Isodose curves extracted."},
+    "tps_got_points":     {"pt": "Pontos de dose extraidos.", "en": "Dose points extracted."},
+    "tps_summary":        {"pt": "Resumo", "en": "Summary"},
+    "tps_dose_maps":      {"pt": "mapa(s) de dose", "en": "dose map(s)"},
+    "tps_isodoses":       {"pt": "conjunto(s) de isodose", "en": "isodose set(s)"},
+    "tps_pointsets":      {"pt": "conjunto(s) de pontos", "en": "point set(s)"},
+    "tps_choose_main":    {"pt": "Qual mapa de dose usar como principal?", "en": "Which dose map to use as the main one?"},
+
 }
 
 
