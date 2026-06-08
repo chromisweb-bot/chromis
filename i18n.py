@@ -255,8 +255,10 @@ STRINGS = {
                            "en": "Background film (unirradiated, same lot)"},
     "dm_bg_waiting":      {"pt": "Envie o filme de background para continuar.",
                            "en": "Upload the background film to continue."},
-    "dm_bg_hint":         {"pt": "O ideal e um filme nao irradiado do mesmo lote, escaneado junto com o filme de medida. Isso cancela variacoes de scanner e de tempo pos-irradiacao.",
-                           "en": "Ideally an unirradiated film from the same lot, scanned together with the measurement film. This cancels scanner and post-irradiation time variations."},
+    "dm_bg_hint":         {"pt": "Recomendado: usar a regiao nao irradiada do proprio filme (mesmo scan/tempo, mais robusto). O background separado so funciona se for do mesmo lote E escaneado junto.",
+                           "en": "Recommended: use the unirradiated region of the same film (same scan/time, most robust). A separate background only works if it is from the same lot AND scanned together."},
+    "dm_bg_upload_warn":  {"pt": "Atencao: o filme de background deve ser do MESMO LOTE e escaneado JUNTO (mesmo tempo pos-irradiacao, mesmo DPI) que o filme de medida. Caso contrario o erro aumenta.",
+                           "en": "Warning: the background film must be from the SAME LOT and scanned TOGETHER (same post-irradiation time, same DPI) as the measurement film. Otherwise the error increases."},
 
 
 }

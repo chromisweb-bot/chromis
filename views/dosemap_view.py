@@ -121,17 +121,18 @@ def dosemap_view(state, go):
     theme_val = "dark" if theme_choice == t("cal_theme_dark") else "light"
     is_percent = display_mode == t("dm_percent")
 
-    # Fonte do background (PV0). Tres opcoes, da mais recomendada a menos:
-    #  1) upload de um filme de background separado (mesmo lote, mesmo scan) = padrao-ouro
-    #  2) regiao nao irradiada do proprio filme de medida (cancela tempo/scanner)
+    # Fonte do background (PV0). Ordem por robustez na pratica real:
+    #  1) regiao nao irradiada do proprio filme = mesmo scan/tempo (mais robusto)
+    #  2) upload de background separado = so funciona se mesmo lote E mesmo scan
     #  3) filme zero da calibracao (pode divergir se escaneado em outro momento)
     bg_mode = st.radio(t("dm_bg_source"),
-                       [t("dm_bg_upload"), t("dm_bg_film"), t("dm_bg_calib")],
+                       [t("dm_bg_film"), t("dm_bg_upload"), t("dm_bg_calib")],
                        key="dm_bg_source")
     st.caption(t("dm_bg_hint"))
 
     bg_img = None
     if bg_mode == t("dm_bg_upload"):
+        st.warning(t("dm_bg_upload_warn"))
         bgup = st.file_uploader(t("dm_bg_upload_label"),
                                 type=["tif", "tiff", "png", "jpg", "jpeg"],
                                 key="dm_bg_upload_widget")
@@ -153,7 +154,7 @@ def dosemap_view(state, go):
 
         pv_zero_use = pv_zero
         if use_bg_upload and bg_img is not None:
-            # PV0 = mediana do canal vermelho do filme de background (detecta o filme)
+            # PV0 = mediana da REGIAO CENTRAL do filme de background (evita bordas).
             try:
                 bfilms, _ = detect_films(bg_img)
                 bordered = order_films_by_intensity(bfilms)
@@ -162,7 +163,11 @@ def dosemap_view(state, go):
                     bg_crop = bg_img[bb[0]:bb[2], bb[1]:bb[3]]
                 else:
                     bg_crop = bg_img
-                pv_zero_use = float(np.median(_red_channel(bg_crop)))
+                bred = _red_channel(bg_crop)
+                bh, bw = bred.shape
+                # regiao central 50% (evita bordas contaminadas)
+                central_bg = bred[int(bh*0.25):int(bh*0.75), int(bw*0.25):int(bw*0.75)]
+                pv_zero_use = float(np.median(central_bg))
             except Exception:
                 pv_zero_use = float(np.median(_red_channel(bg_img)))
         elif use_film_bg:
