@@ -32,9 +32,18 @@ from views import (
 # ──────────────────────────────────────────────────────────────────────────
 # CONFIGURAÇÃO DA PÁGINA
 # ──────────────────────────────────────────────────────────────────────────
+# Ícone da página (favicon): usa a logo do software (assets/icon.png).
+# Se a imagem não for encontrada, cai no emoji 🎯 para não quebrar.
+try:
+    from pathlib import Path as _Path
+    from PIL import Image as _Image
+    _PAGE_ICON = _Image.open(_Path(__file__).parent / "assets" / "icon.png")
+except Exception:
+    _PAGE_ICON = "🎯"
+
 st.set_page_config(
     page_title="Chromis WEB",
-    page_icon="🎯",
+    page_icon=_PAGE_ICON,
     layout="wide",
     initial_sidebar_state="collapsed",
 )

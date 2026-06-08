@@ -15,7 +15,14 @@ import streamlit as st
 from theme import inject_theme, COLORS
 from auth.accounts import list_pending, approve_user, reject_user, _load_users
 
-st.set_page_config(page_title="Chromis WEB · Admin", page_icon="🔐", layout="centered")
+try:
+    from pathlib import Path as _Path
+    from PIL import Image as _Image
+    _ADMIN_ICON = _Image.open(_Path(__file__).parent / "assets" / "icon.png")
+except Exception:
+    _ADMIN_ICON = "🔐"
+
+st.set_page_config(page_title="Chromis WEB · Admin", page_icon=_ADMIN_ICON, layout="centered")
 inject_theme()
 
 st.markdown(f"<h2 style='color:{COLORS['text']}'>🔐 Painel Administrativo — Chromis WEB</h2>",
