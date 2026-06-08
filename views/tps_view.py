@@ -138,10 +138,24 @@ def tps_view(state, go):
             contours.append((name, result))
             st.success(t("tps_got_isodose"))
 
-        # DosePoints
+        # DosePoints (pontos de dose do RTPLAN ou CSV)
         elif result.__class__.__name__ == "DosePoints":
             points.append((name, result))
-            st.success(t("tps_got_points"))
+            pts = result.points or []
+            st.success(f"{t('tps_got_points')} ({len(pts)})")
+            if pts:
+                import pandas as pd
+                rows = []
+                for p in pts:
+                    rows.append({
+                        t("tps_pt_name"): p.get("name", "?"),
+                        "X (mm)": p.get("x_mm"),
+                        "Y (mm)": p.get("y_mm"),
+                        "Z (mm)": p.get("z_mm"),
+                        t("tps_pt_dose"): (f"{p.get('dose_gy')*100:.0f}"
+                                           if p.get("dose_gy") is not None else "-"),
+                    })
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     # Resumo geral
     st.markdown(f"<hr style='border:none;border-top:0.5px solid {COLORS['border_soft']};margin:16px 0'>",

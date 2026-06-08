@@ -326,6 +326,8 @@ STRINGS = {
     "tps_physize":        {"pt": "Tamanho fisico do mapa", "en": "Physical map size"},
     "tps_isodose_preview":{"pt": "Isodoses do TPS", "en": "TPS isodoses"},
     "tps_iso_fail":       {"pt": "isodose indisponivel", "en": "isodose unavailable"},
+    "tps_pt_name":        {"pt": "Ponto", "en": "Point"},
+    "tps_pt_dose":        {"pt": "Dose planejada (cGy)", "en": "Planned dose (cGy)"},
 
 }
 

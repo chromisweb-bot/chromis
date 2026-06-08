@@ -183,13 +183,20 @@ def detect_format(filepath_or_bytes, filename=None):
     if ext == '.all':
         return 'all_dose'
     if ext == '.dcm':
-        # Pode ser RT Dose ou RT Structure — detectar pelo conteúdo
+        # Pode ser RT Dose, RT Structure, RT Plan, CT — detectar pelo conteúdo.
+        # Busca numa janela maior porque arquivos sem 'DICM' tem a modalidade
+        # mais adiante no arquivo.
         try:
             content = _read_raw(filepath_or_bytes)
-            if b'RTDOSE' in content[:2000] or b'RT DOSE' in content[:2000]:
+            head = content[:20000]
+            if b'RTDOSE' in head or b'RT DOSE' in head:
                 return 'dicom_dose'
-            if b'RTSTRUCT' in content[:2000] or b'RT STRUCT' in content[:2000]:
+            if b'RTSTRUCT' in head or b'RT STRUCT' in head:
                 return 'dicom_struct'
+            if b'RTPLAN' in head or b'RT PLAN' in head:
+                return 'dicom_plan'
+            if b'RTIMAGE' in head:
+                return 'dicom_image'
             return 'dicom_dose'  # default para .dcm
         except Exception:
             return 'dicom_dose'
@@ -223,6 +230,32 @@ def detect_format(filepath_or_bytes, filename=None):
 # LEITORES DICOM
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _safe_dcmread(content):
+    """
+    Le DICOM de forma robusta, aceitando arquivos SEM o preambulo/'DICM'
+    (comum em exports de TPS como Monaco/Elekta). Usa force=True e, se o
+    TransferSyntaxUID estiver ausente (necessario para decodificar pixels),
+    assume Implicit VR Little Endian (padrao DICOM), evitando erro ao acessar
+    pixel_array.
+    """
+    import pydicom
+    from pydicom.uid import ImplicitVRLittleEndian
+    ds = pydicom.dcmread(io.BytesIO(content), force=True)
+    # Se nao houver file_meta/TransferSyntax, definir o padrao para permitir
+    # a leitura dos pixels (DoseGrid/Image).
+    try:
+        _ = ds.file_meta.TransferSyntaxUID
+    except Exception:
+        try:
+            from pydicom.dataset import FileMetaDataset
+            if not hasattr(ds, "file_meta") or ds.file_meta is None:
+                ds.file_meta = FileMetaDataset()
+            ds.file_meta.TransferSyntaxUID = ImplicitVRLittleEndian
+        except Exception:
+            pass
+    return ds
+
+
 def read_dicom_dose(filepath_or_bytes, filename=None, slice_index=None):
     """
     Lê DICOM RT Dose do Monaco (ou qualquer TPS).
@@ -246,7 +279,7 @@ def read_dicom_dose(filepath_or_bytes, filename=None, slice_index=None):
         )
 
     content = _read_raw(filepath_or_bytes)
-    ds = pydicom.dcmread(io.BytesIO(content))
+    ds = _safe_dcmread(content)
 
     # ── Verificar que é RT Dose ────────────────────────────────────────────
     modality = getattr(ds, 'Modality', '')
@@ -363,7 +396,7 @@ def read_dicom_struct(filepath_or_bytes, filename=None, z_target_mm=0.0,
         raise ImportError("pydicom não instalado. Instale com: pip install pydicom")
 
     content = _read_raw(filepath_or_bytes)
-    ds = pydicom.dcmread(io.BytesIO(content))
+    ds = _safe_dcmread(content)
 
     modality = getattr(ds, 'Modality', '')
     if modality not in ('RTSTRUCT', ''):
@@ -818,24 +851,118 @@ def read_all_dose(filepath_or_bytes, filename=None, **kwargs):
     )
 
 
+def read_dicom_plan(filepath_or_bytes, filename=None, **kwargs):
+    """
+    Le um DICOM RT Plan e extrai os pontos de referencia de dose
+    (Dose Reference Points) e/ou pontos de interesse, com a dose alvo
+    quando disponivel.
+
+    No Monaco/Elekta, os "pontos" que o usuario marca aparecem na sequencia
+    DoseReferenceSequence (300A,0010), cada um com:
+      - DoseReferencePointCoordinates (300A,0018): (x,y,z) em mm (paciente)
+      - TargetPrescriptionDose (300A,0026): dose prescrita no ponto (Gy)
+      - DoseReferenceDescription (300A,0016): nome/descricao
+
+    Returns:
+        DosePoints (lista de dicts name,x_mm,y_mm,z_mm,dose_gy).
+    """
+    import pydicom  # noqa
+    content = _read_raw(filepath_or_bytes)
+    ds = _safe_dcmread(content)
+
+    points = []
+    drs = getattr(ds, "DoseReferenceSequence", None)
+    if drs:
+        for i, dr in enumerate(drs):
+            coords = getattr(dr, "DoseReferencePointCoordinates", None)
+            name = str(getattr(dr, "DoseReferenceDescription", "") or
+                       getattr(dr, "DoseReferenceStructureType", "") or
+                       f"Ponto {i+1}")
+            dose_gy = getattr(dr, "TargetPrescriptionDose", None)
+            if dose_gy is not None:
+                try:
+                    dose_gy = float(dose_gy)
+                except Exception:
+                    dose_gy = None
+            pt = {"name": name}
+            if coords is not None and len(coords) >= 3:
+                pt["x_mm"] = float(coords[0])
+                pt["y_mm"] = float(coords[1])
+                pt["z_mm"] = float(coords[2])
+            pt["dose_gy"] = dose_gy
+            pt["source_field"] = "DoseReferenceSequence"
+            points.append(pt)
+
+    metadata = {
+        "modality": str(getattr(ds, "Modality", "")),
+        "patient_id": str(getattr(ds, "PatientID", "")),
+        "patient_name": str(getattr(ds, "PatientName", "")),
+        "plan_label": str(getattr(ds, "RTPlanLabel", "")),
+        "plan_name": str(getattr(ds, "RTPlanName", "")),
+        "n_points": len(points),
+    }
+    dp = DosePoints(points, source="dicom_plan")
+    dp.metadata = metadata
+    return dp
+
+
+def sample_points_dose_from_dose(dose_dist, points):
+    """
+    Para cada ponto (com coordenadas x,y em mm no referencial do paciente),
+    amostra a dose no mapa de dose 2D fornecido (DoseDistribution), usando a
+    origem fisica e a resolucao do mapa.
+
+    Retorna a lista de pontos com a chave extra "dose_measured_gy".
+    Observacao: usa a fatia 2D ja selecionada do RTDOSE; o casamento em z
+    pressupoe que o ponto esta no plano do mapa (ou proximo).
+    """
+    out = []
+    for p in points:
+        q = dict(p)
+        x_mm = p.get("x_mm")
+        y_mm = p.get("y_mm")
+        if x_mm is None or y_mm is None:
+            q["dose_at_point_gy"] = None
+            out.append(q)
+            continue
+        try:
+            # get_dose_at_mm usa coordenadas centradas; convertemos do
+            # referencial de origem fisica do mapa.
+            val = dose_dist.get_dose_at_mm(x_mm, y_mm)
+            q["dose_at_point_gy"] = float(val) if val == val else None  # NaN check
+        except Exception:
+            q["dose_at_point_gy"] = None
+        out.append(q)
+    return out
+
+
 def read_tps(filepath_or_bytes, filename=None, **kwargs):
     """
     Funcao universal: detecta formato e le automaticamente.
 
-    Suporta: DICOM RT Dose, DICOM RT Structure, CSV de pontos, CSV matriz,
-    imagem, e matriz de dose .ALL (CMS/XiO e similares).
+    Suporta: DICOM RT Dose, RT Structure, RT Plan, CT/RT Image, CSV de pontos,
+    CSV matriz, imagem, e matriz de dose .ALL (CMS/XiO e similares).
 
     Returns:
         DoseDistribution, IsodoseContours ou DosePoints conforme o formato.
+        Para RT Dose, retorna apenas o DoseDistribution (info fica em metadata).
     """
     fmt = detect_format(filepath_or_bytes, filename)
 
     if fmt == 'all_dose':
         return read_all_dose(filepath_or_bytes, filename, **kwargs)
     elif fmt == 'dicom_dose':
-        return read_dicom_dose(filepath_or_bytes, filename, **kwargs)
+        result = read_dicom_dose(filepath_or_bytes, filename, **kwargs)
+        # read_dicom_dose retorna (dist, info); devolvemos so o dist.
+        if isinstance(result, tuple):
+            return result[0]
+        return result
     elif fmt == 'dicom_struct':
         return read_dicom_struct(filepath_or_bytes, filename, **kwargs)
+    elif fmt == 'dicom_plan':
+        return read_dicom_plan(filepath_or_bytes, filename, **kwargs)
+    elif fmt == 'dicom_image':
+        raise ValueError("Arquivo de imagem DICOM (CT/RTIMAGE): usado como contexto, nao contem mapa de dose.")
     elif fmt == 'dose_points':
         return read_dose_points_csv(filepath_or_bytes, filename)
     elif fmt == 'csv_matrix':
