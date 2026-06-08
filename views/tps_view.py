@@ -70,24 +70,66 @@ def tps_view(state, go):
         if hasattr(result, "dose") and hasattr(result, "resolution_mm"):
             s = result.summary()
             dose_dists.append((name, result))
+            meta = result.metadata or {}
+
             cA, cB, cC = st.columns(3)
             cA.metric(t("tps_shape"), f"{s['shape'][0]}×{s['shape'][1]}")
             cB.metric(t("tps_res"), f"{s['resolution_mm']:.1f} mm")
             cC.metric(t("tps_maxdose"), f"{s['max_dose_cgy']:.0f} cGy")
-            meta = result.metadata or {}
-            if meta.get("plane_desc"):
-                st.caption(f"{t('tps_plane')}: {meta['plane_desc']}  ·  "
-                           f"{t('tps_patient')}: {meta.get('patient_id','?')}")
+
+            # Metadados extraidos do cabecalho (tudo que o arquivo traz)
+            with st.expander(t("tps_metadata")):
+                if meta.get("patient_id"):
+                    st.caption(f"**{t('tps_patient')}:** {meta['patient_id']}")
+                if meta.get("plane_desc"):
+                    st.caption(f"**{t('tps_plane')}:** {meta['plane_desc']}")
+                if meta.get("datetime"):
+                    st.caption(f"**{t('tps_datetime')}:** {meta['datetime']}")
+                if meta.get("dose_reference"):
+                    st.caption(f"**{t('tps_doseref')}:** {meta['dose_reference']} ({meta.get('unit_source','?')})")
+                if meta.get("upperleft_mm"):
+                    ul = meta["upperleft_mm"]
+                    st.caption(f"**{t('tps_origin')}:** ({ul[0]:.1f}, {ul[1]:.1f}) mm")
+                if meta.get("calc_grid_mm"):
+                    g = meta["calc_grid_mm"]
+                    st.caption(f"**{t('tps_calcgrid')}:** {g[0]:.1f} × {g[1]:.1f} × {g[2]:.1f} mm")
+                if meta.get("qa_plane_mm"):
+                    q = meta["qa_plane_mm"]
+                    st.caption(f"**{t('tps_qaplane')}:** {q[0]:.0f} × {q[1]:.0f} mm")
+                # tamanho fisico real derivado da resolucao
+                hmm = s['shape'][0] * s['resolution_mm']
+                wmm = s['shape'][1] * s['resolution_mm']
+                st.caption(f"**{t('tps_physize')}:** {wmm:.0f} × {hmm:.0f} mm "
+                           f"({wmm/10:.1f} × {hmm/10:.1f} cm)")
+
             if meta.get("dims_match_declared") is False:
                 st.warning(t("tps_dims_warn"))
-            # Pre-visualizacao do mapa de dose
+
+            # Pre-visualizacao: mapa de dose E isodoses (lado a lado)
             try:
                 from utils.dose_map_engine import render_dose_map_png
-                # dose interna em Gy -> mostrar em cGy
-                png = render_dose_map_png(result.dose * 100.0, unit="cGy",
-                                          lang=get_lang(), theme="dark",
-                                          title=f"{t('tps_dose_map')} — {name}")
-                st.image(png, use_container_width=True)
+                dose_cgy_map = result.dose * 100.0  # interno Gy -> cGy
+                pcol1, pcol2 = st.columns(2)
+                with pcol1:
+                    png = render_dose_map_png(dose_cgy_map, unit="cGy",
+                                              lang=get_lang(), theme="dark",
+                                              title=t("tps_dose_map"))
+                    st.image(png, use_container_width=True)
+                with pcol2:
+                    # Isodoses do TPS, geradas pelo MESMO motor do filme.
+                    try:
+                        from isodose_engine import render_isodose_png, DEFAULT_CLINICAL_LEVELS
+                        # base = % da dose maxima do proprio TPS (sem exigir Rx aqui)
+                        iso_png = render_isodose_png(
+                            dose_cgy_map, DEFAULT_CLINICAL_LEVELS, basis="max",
+                            level_pcts=DEFAULT_CLINICAL_LEVELS, unit="cGy",
+                            lang=get_lang(), theme="dark", linestyle="solid",
+                            colormap="jet", show_background=True,
+                            title=t("tps_isodose_preview"),
+                        )
+                        st.image(iso_png, use_container_width=True)
+                    except Exception as e:
+                        st.caption(f"({t('tps_iso_fail')}: {e})")
             except Exception as e:
                 st.caption(f"({t('tps_preview_fail')}: {e})")
 

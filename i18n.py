@@ -317,6 +317,15 @@ STRINGS = {
     "tps_isodoses":       {"pt": "conjunto(s) de isodose", "en": "isodose set(s)"},
     "tps_pointsets":      {"pt": "conjunto(s) de pontos", "en": "point set(s)"},
     "tps_choose_main":    {"pt": "Qual mapa de dose usar como principal?", "en": "Which dose map to use as the main one?"},
+    "tps_metadata":       {"pt": "Ver todos os dados extraidos do arquivo", "en": "See all data extracted from the file"},
+    "tps_datetime":       {"pt": "Data/hora do export", "en": "Export date/time"},
+    "tps_doseref":        {"pt": "Referencia de dose", "en": "Dose reference"},
+    "tps_origin":         {"pt": "Origem fisica (canto sup. esq.)", "en": "Physical origin (upper-left)"},
+    "tps_calcgrid":       {"pt": "Grade de calculo do TPS", "en": "TPS calculation grid"},
+    "tps_qaplane":        {"pt": "Plano de QA", "en": "QA plane"},
+    "tps_physize":        {"pt": "Tamanho fisico do mapa", "en": "Physical map size"},
+    "tps_isodose_preview":{"pt": "Isodoses do TPS", "en": "TPS isodoses"},
+    "tps_iso_fail":       {"pt": "isodose indisponivel", "en": "isodose unavailable"},
 
 }
 

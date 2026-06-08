@@ -750,20 +750,69 @@ def read_all_dose(filepath_or_bytes, filename=None, **kwargs):
         except Exception:
             valid_dims = None
 
+    # Origem fisica real do mapa (canto superior esquerdo), em mm.
+    # No .ALL vem como "Upperleft, x, y". Usamos como origem para que cada
+    # pixel tenha coordenada espacial real (essencial para alinhar com o filme).
+    origin = (0.0, 0.0)
+    if "Upperleft" in header and len(header["Upperleft"]) >= 2:
+        try:
+            origin = (float(header["Upperleft"][0]), float(header["Upperleft"][1]))
+        except Exception:
+            origin = (0.0, 0.0)
+
+    # Grade de calculo do TPS (mm). O nome do campo no arquivo e
+    # "CalcGridResmm (x,y,z)" — as virgulas DENTRO do nome fazem o split
+    # quebrar o cabecalho; entao procuramos a chave que comeca com o nome e
+    # pegamos os ultimos 3 numeros da linha original.
+    calc_grid_mm = None
+    for k in header:
+        if k.startswith("CalcGridResmm"):
+            # junta nome partido + valores e extrai os numeros finais
+            nums = []
+            for tok in header[k]:
+                try:
+                    nums.append(float(tok))
+                except Exception:
+                    pass
+            if len(nums) >= 3:
+                calc_grid_mm = nums[-3:]
+            break
+
+    # Dimensoes fisicas do plano de QA (mm), ex: "OutputWidLenQAplane, 352, 304"
+    qa_plane_mm = None
+    if "OutputWidLenQAplane" in header and len(header["OutputWidLenQAplane"]) >= 2:
+        try:
+            qa_plane_mm = [float(v) for v in header["OutputWidLenQAplane"][:2]]
+        except Exception:
+            pass
+
+    # Dose absoluta ou relativa (campo DoseUnits costuma ter "Abs" ou "Rel")
+    dose_ref = None
+    if "abs" in units_field:
+        dose_ref = "Absoluta"
+    elif "rel" in units_field:
+        dose_ref = "Relativa"
+
     metadata = {
         "patient_id": header.get("PatientID", ["?"])[0],
         "plane_desc": header.get("PlaneDesc", ["?"])[0],
         "unit_source": unit_src,
+        "dose_reference": dose_ref,
         "declared_pts_xy": declared,
         "dims_match_declared": valid_dims,
         "datetime": header.get("DateTime", ["?"])[0] if "DateTime" in header else None,
+        "doc_num": header.get("DocNum", [None])[0] if "DocNum" in header else None,
+        "upperleft_mm": list(origin),
+        "calc_grid_mm": calc_grid_mm,
+        "qa_plane_mm": qa_plane_mm,
         "raw_header_keys": list(header.keys()),
+        "raw_header": {k: header[k] for k in header},
     }
 
     return DoseDistribution(
         dose=dose_gy,
         resolution_mm=res_mm,
-        origin_mm=(0.0, 0.0),
+        origin_mm=origin,
         source="all_text_tps",
         metadata=metadata,
     )
