@@ -294,6 +294,9 @@ STRINGS = {
     "iso_smooth":         {"pt": "Suavizacao das curvas", "en": "Curve smoothing"},
     "iso_smooth_hint":    {"pt": "Reduz o ruido que deixa as isodoses rendilhadas (util em mapas de grade grossa). 0 = sem suavizacao. Nao altera a dose, so a extracao das curvas.",
                            "en": "Reduces the noise that makes isodoses jagged (useful for coarse-grid maps). 0 = none. Does not change the dose, only curve extraction."},
+    "iso_presets":        {"pt": "Presets de niveis (ou edite no campo abaixo):", "en": "Level presets (or edit in the field below):"},
+    "iso_preset_clinical":{"pt": "Clinico (50-150)", "en": "Clinical (50-150)"},
+    "iso_preset_main":    {"pt": "Principais (50, 100)", "en": "Main (50, 100)"},
 
     # ===== TPS (importador universal) =====
     "tps_title":          {"pt": "Importar dados do TPS", "en": "Import TPS data"},

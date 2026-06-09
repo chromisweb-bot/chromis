@@ -27,20 +27,32 @@ import numpy as np
 # convencao comum em planejamento. Niveis fora desta tabela recebem cor
 # atribuida automaticamente pela paleta.
 CLINICAL_ISODOSE_COLORS = {
+    10:  "#08306b",   # azul muito escuro
+    20:  "#08519c",   # azul escuro
     30:  "#2166ac",   # azul
-    50:  "#4393c3",   # azul claro
-    75:  "#2ca02c",   # verde
-    90:  "#bcbd22",   # amarelo-esverdeado
-    95:  "#e6c200",   # amarelo
+    40:  "#4393c3",   # azul medio
+    50:  "#5aade0",   # azul claro
+    60:  "#17becf",   # ciano
+    70:  "#2ca02c",   # verde
+    75:  "#52b788",   # verde claro
+    80:  "#bcbd22",   # amarelo-esverdeado
+    90:  "#e6c200",   # amarelo
+    95:  "#f4a000",   # ambar
     100: "#d62728",   # vermelho (dose de referencia)
     105: "#e377c2",   # rosa
     110: "#ff7f0e",   # laranja
+    120: "#c71585",   # magenta
     125: "#9467bd",   # roxo
+    130: "#7b3294",   # roxo escuro
+    140: "#a0522d",   # siena
     150: "#8c564b",   # marrom
 }
 
 # Niveis clinicos padrao (editaveis pelo usuario na interface).
 DEFAULT_CLINICAL_LEVELS = [50, 75, 100, 125, 150]
+
+# Preset completo de 10 a 150 (passo de 10).
+LEVELS_10_TO_150 = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150]
 
 
 def color_for_level(pct, fallback_index=0):

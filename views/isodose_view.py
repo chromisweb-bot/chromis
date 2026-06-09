@@ -32,7 +32,7 @@ def isodose_view(state, go):
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
         from isodose_engine import (
             render_isodose_png, isodose_summary, DEFAULT_CLINICAL_LEVELS,
-            resolve_isodose_values,
+            LEVELS_10_TO_150, resolve_isodose_values,
         )
         import numpy as np
     except Exception as e:
@@ -74,6 +74,17 @@ def isodose_view(state, go):
     else:
         default_levels_str = ", ".join(str(x) for x in DEFAULT_CLINICAL_LEVELS)
         help_txt = t("iso_levels_pct_hint")
+
+    # Presets rapidos (so para modos percentuais)
+    if basis in ("prescription", "max"):
+        st.caption(t("iso_presets"))
+        pc1, pc2, pc3 = st.columns(3)
+        if pc1.button(t("iso_preset_clinical"), use_container_width=True, key="iso_p1"):
+            st.session_state["iso_levels"] = ", ".join(str(x) for x in DEFAULT_CLINICAL_LEVELS)
+        if pc2.button("10 → 150", use_container_width=True, key="iso_p2"):
+            st.session_state["iso_levels"] = ", ".join(str(x) for x in LEVELS_10_TO_150)
+        if pc3.button(t("iso_preset_main"), use_container_width=True, key="iso_p3"):
+            st.session_state["iso_levels"] = "50, 100"
 
     levels_str = st.text_input(t("iso_levels"), value=default_levels_str,
                                help=help_txt, key="iso_levels")
