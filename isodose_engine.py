@@ -172,8 +172,11 @@ def render_isodose_png(dose_map, levels, basis="prescription",
         else:
             color = color_for_level(-1, idx)
 
+        # IMPORTANTE: nao passar origin no contour. O imshow ja fixou os
+        # limites dos eixos com origin="upper"; passar origin tambem ao contour
+        # causava inversao vertical das curvas em relacao ao heatmap.
         ax.contour(dose_for_contour, levels=[val], colors=[color],
-                   linewidths=1.8, linestyles=ls, origin="upper")
+                   linewidths=1.8, linestyles=ls)
         from matplotlib.lines import Line2D
         handles.append(Line2D([0], [0], color=color, lw=1.8, linestyle=ls))
         labels.append(f"{lbl}  ({val:.0f} {unit})")
