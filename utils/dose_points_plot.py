@@ -153,35 +153,48 @@ def render_dose_profiles(dose_volume_gy, geometry, ref_point, points=None,
     fig.patch.set_facecolor(bg)
 
     refname = ref_point.get("name", "ref")
+    rx, ry, rz = ref_point["x_mm"], ref_point["y_mm"], ref_point["z_mm"]
+    is_pt = lang == "pt"
 
-    # Perfil X (horizontal): varia coluna j, fixa i=iy, k=kz
+    def _mark_ref(ax, coord_value, axis_letter):
+        """Marca o ponto de referencia com linha + rotulo (nome e valor)."""
+        ax.axvline(coord_value, color="#ff5555", ls="--", alpha=0.85, lw=1.4,
+                   label=f"{refname} ({axis_letter}={coord_value:.1f} mm)")
+        ax.legend(loc="best", fontsize=8, framealpha=0.85,
+                  facecolor=bg, edgecolor=fg, labelcolor=fg)
+
+    # ── Perfil X (lateral): varia coluna j, fixa i=iy, k=kz ────────────────
     perfil_x = vol[kz, iy, :]
     x_coords = [ox + j*col_sp for j in range(nj)]
     axes[0].plot(x_coords, perfil_x, color="#4da3ff", lw=1.6)
-    axes[0].axvline(ref_point["x_mm"], color="#ff5555", ls="--", alpha=0.7)
-    axes[0].set_title(f"Perfil Horizontal (Y={ref_point['y_mm']:.1f} mm)" if lang=="pt"
-                      else f"Horizontal profile (Y={ref_point['y_mm']:.1f} mm)",
-                      color=fg, fontsize=11)
-    axes[0].set_xlabel("X (mm)", color=fg); axes[0].set_ylabel("Dose (Gy)", color=fg)
+    _mark_ref(axes[0], rx, "X")
+    axes[0].set_title(("Perfil lateral em X" if is_pt else "Lateral profile in X")
+                      + f"\n(Y={ry:.1f}, Z={rz:.1f} mm fixos)",
+                      color=fg, fontsize=10)
+    axes[0].set_xlabel("X DICOM (mm) — " + ("lateral" if is_pt else "lateral"), color=fg)
+    axes[0].set_ylabel("Dose (Gy)", color=fg)
 
-    # Perfil Y (vertical): varia linha i, fixa j=jx, k=kz
+    # ── Perfil Y (PROFUNDIDADE / PDD): varia linha i, fixa j=jx, k=kz ──────
     perfil_y = vol[kz, :, jx]
     y_coords = [oy + i*row_sp for i in range(ni)]
     axes[1].plot(y_coords, perfil_y, color="#5fd35f", lw=1.6)
-    axes[1].axvline(ref_point["y_mm"], color="#ff5555", ls="--", alpha=0.7)
-    axes[1].set_title(f"Perfil Vertical (X={ref_point['x_mm']:.1f} mm)" if lang=="pt"
-                      else f"Vertical profile (X={ref_point['x_mm']:.1f} mm)",
-                      color=fg, fontsize=11)
-    axes[1].set_xlabel("Y (mm)", color=fg); axes[1].set_ylabel("Dose (Gy)", color=fg)
+    _mark_ref(axes[1], ry, "Y")
+    axes[1].set_title(("Perfil em profundidade (PDD)" if is_pt else "Depth profile (PDD)")
+                      + f"\n(X={rx:.1f}, Z={rz:.1f} mm fixos)",
+                      color=fg, fontsize=10)
+    axes[1].set_xlabel("Y DICOM (mm) — " + ("profundidade" if is_pt else "depth"), color=fg)
+    axes[1].set_ylabel("Dose (Gy)", color=fg)
 
-    # Perfil Z (profundidade): varia fatia k, fixa i=iy, j=jx
+    # ── Perfil Z (lateral): varia fatia k, fixa i=iy, j=jx ────────────────
     perfil_z = vol[:, iy, jx]
     z_coords = [oz + (gfov[k] if k < len(gfov) else k*spacing_z) for k in range(nk)]
     axes[2].plot(z_coords, perfil_z, color="#ff6b6b", lw=1.6)
-    axes[2].axvline(ref_point["z_mm"], color="#ff5555", ls="--", alpha=0.7)
-    axes[2].set_title(f"Perfil em Profundidade" if lang=="pt" else "Depth profile",
-                      color=fg, fontsize=11)
-    axes[2].set_xlabel("Z (mm)", color=fg); axes[2].set_ylabel("Dose (Gy)", color=fg)
+    _mark_ref(axes[2], rz, "Z")
+    axes[2].set_title(("Perfil lateral em Z" if is_pt else "Lateral profile in Z")
+                      + f"\n(X={rx:.1f}, Y={ry:.1f} mm fixos)",
+                      color=fg, fontsize=10)
+    axes[2].set_xlabel("Z DICOM (mm) — " + ("lateral" if is_pt else "lateral"), color=fg)
+    axes[2].set_ylabel("Dose (Gy)", color=fg)
 
     for ax in axes:
         ax.set_facecolor(bg)
