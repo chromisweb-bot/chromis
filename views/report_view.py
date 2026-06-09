@@ -128,7 +128,9 @@ def report_view(state, go):
                                             logo_path=logo_path,
                                             films_image=gallery_for_report or state.get("films_overview_png"),
                                             curve_image=curve_for_report,
-                                            dosemap_image=state.get("dosemap_png"))
+                                            dosemap_image=state.get("dosemap_png"),
+                                            tps_map_image=state.get("tps_map_image"),
+                                            tps_profiles_image=state.get("tps_profiles_image"))
             except Exception as e:
                 st.error(f"Erro ao gerar o PDF: {e}")
                 return

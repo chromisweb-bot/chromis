@@ -116,7 +116,7 @@ def render_isodose_png(dose_map, levels, basis="prescription",
                        unit="cGy", lang="pt", theme="dark",
                        linestyle="solid", colormap="jet",
                        show_background=True, title=None,
-                       smooth_sigma=0.0):
+                       smooth_sigma=0.0, label_on_curves=False):
     """
     Renderiza as curvas de isodose sobre o mapa de dose. Retorna bytes PNG.
 
@@ -187,8 +187,15 @@ def render_isodose_png(dose_map, levels, basis="prescription",
         # IMPORTANTE: nao passar origin no contour. O imshow ja fixou os
         # limites dos eixos com origin="upper"; passar origin tambem ao contour
         # causava inversao vertical das curvas em relacao ao heatmap.
-        ax.contour(dose_for_contour, levels=[val], colors=[color],
-                   linewidths=1.8, linestyles=ls)
+        cs = ax.contour(dose_for_contour, levels=[val], colors=[color],
+                        linewidths=1.8, linestyles=ls)
+        # Escreve a % sobre a propria curva, para identificacao direta.
+        if label_on_curves:
+            try:
+                pct_lbl = lbl  # ex: "75%"
+                ax.clabel(cs, inline=True, fontsize=7, fmt=lambda v, _l=pct_lbl: _l)
+            except Exception:
+                pass
         from matplotlib.lines import Line2D
         handles.append(Line2D([0], [0], color=color, lw=1.8, linestyle=ls))
         labels.append(f"{lbl}  ({val:.0f} {unit})")

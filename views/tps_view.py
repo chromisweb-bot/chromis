@@ -248,19 +248,34 @@ def _render_points_analysis(state, tp, np, vol_dist, enriched):
     if not iso_levels:
         iso_levels = list(DEFAULT_CLINICAL_LEVELS)
 
+    # Aparencia das imagens: tema, paleta de cores e rotulo de % nas isodoses.
+    ac1, ac2, ac3 = st.columns(3)
+    with ac1:
+        theme_choice = st.radio(t("cal_graph_theme"),
+                                [t("cal_theme_dark"), t("cal_theme_light")],
+                                horizontal=True, key="tps_theme")
+        theme_val = "dark" if theme_choice == t("cal_theme_dark") else "light"
+    with ac2:
+        cmap = st.selectbox(t("tps_colormap"),
+                            ["jet", "turbo", "viridis", "plasma", "inferno", "rainbow"],
+                            key="tps_cmap")
+    with ac3:
+        label_iso = st.checkbox(t("tps_iso_label_pct"), value=True, key="tps_iso_lbl")
+
     # Mapa de dose e mapa de isodose (lado a lado)
     st.markdown(f"**{t('tps_maps_title')}**")
     cc1, cc2 = st.columns(2)
     with cc1:
         png = render_dose_map_png(dose_2d_cgy, unit="cGy", lang=get_lang(),
-                                  theme="dark", title=t("tps_plane_dose_map"))
+                                  theme=theme_val, title=t("tps_plane_dose_map"),
+                                  colormap=cmap)
         st.image(png, use_container_width=True)
     with cc2:
         iso = render_isodose_png(dose_2d_cgy, iso_levels, basis="max",
                                  level_pcts=iso_levels, unit="cGy",
-                                 lang=get_lang(), theme="dark", colormap="jet",
+                                 lang=get_lang(), theme=theme_val, colormap=cmap,
                                  show_background=True, title=t("tps_isodose_preview"),
-                                 smooth_sigma=1.0)
+                                 smooth_sigma=1.0, label_on_curves=label_iso)
         st.image(iso, use_container_width=True)
 
     # Mapa de dose com pontos
@@ -268,12 +283,14 @@ def _render_points_analysis(state, tp, np, vol_dist, enriched):
     iso_fracs = tuple(iso_levels)  # usados como % da dose maxima no mapa c/ pontos
     png_pts = render_dose_map_with_points(
         dose_2d_cgy, geom, pts_here if show_points else [], lang=get_lang(),
-        theme="dark", colormap="jet", title=t("tps_map_with_points"),
+        theme=theme_val, colormap=cmap, title=t("tps_map_with_points"),
         smooth_sigma=1.0, show_isodoses=True, level_pcts=iso_fracs,
         label_points=show_points)
     st.image(png_pts, use_container_width=True)
     if show_points:
         st.caption(f"{len(pts_here)} {t('tps_points_in_plane')}")
+    # Guarda para o relatorio
+    state["tps_map_image"] = png_pts
 
     # Perfis: PDD no eixo central + laterais na profundidade escolhida
     ref = next((q for q in valid if q["name"] == central), pmax)
@@ -294,8 +311,9 @@ def _render_points_analysis(state, tp, np, vol_dist, enriched):
         prof = render_dose_profiles(vol, geom, ref,
                                     points=valid, show_points=show_points,
                                     lateral_depth_y_mm=depth_y,
-                                    lang=get_lang(), theme="dark")
+                                    lang=get_lang(), theme=theme_val)
         st.image(prof, use_container_width=True)
+        state["tps_profiles_image"] = prof   # guarda para o relatorio
     except Exception as e:
         st.caption(f"({t('tps_profiles_fail')}: {e})")
 

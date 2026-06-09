@@ -113,6 +113,7 @@ def isodose_view(state, go):
         theme_val = "dark" if theme_choice == t("cal_theme_dark") else "light"
 
     show_bg = st.checkbox(t("iso_show_bg"), value=True, key="iso_show_bg")
+    label_curves = st.checkbox(t("tps_iso_label_pct"), value=False, key="iso_label_pct")
 
     # Suavizacao para limpar curvas ruidosas (mapas de grade grossa interpolada).
     smooth = st.slider(t("iso_smooth"), min_value=0.0, max_value=3.0,
@@ -136,7 +137,7 @@ def isodose_view(state, go):
             level_pcts=levels if basis in ("prescription", "max") else None,
             unit=unit, lang=get_lang(), theme=theme_val,
             linestyle=linestyle, colormap=cmap, show_background=show_bg,
-            smooth_sigma=smooth,
+            smooth_sigma=smooth, label_on_curves=label_curves,
         )
 
     st.image(png, use_container_width=True)

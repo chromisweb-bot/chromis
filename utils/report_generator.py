@@ -79,6 +79,15 @@ R = {
     "dm_max":       {"pt": "Dose maxima", "en": "Max dose"},
     "dm_ref_r":     {"pt": "Referencia (100%)", "en": "Reference (100%)"},
     "dm_img":       {"pt": "Distribuicao de dose:", "en": "Dose distribution:"},
+    "sec_tps":      {"pt": "5. Planejamento (TPS)", "en": "5. Treatment Plan (TPS)"},
+    "tps_r_maps":   {"pt": "Mapas de dose", "en": "Dose maps"},
+    "tps_r_npoints":{"pt": "Pontos analisados", "en": "Analysed points"},
+    "tps_r_central":{"pt": "Ponto central (referencia)", "en": "Central point (reference)"},
+    "tps_r_maxdose":{"pt": "Dose maxima (volume)", "en": "Max dose (volume)"},
+    "tps_r_pt":     {"pt": "Ponto", "en": "Point"},
+    "tps_r_dose":   {"pt": "Dose TPS (cGy)", "en": "TPS dose (cGy)"},
+    "tps_r_mapimg": {"pt": "Mapa de dose do TPS com os pontos:", "en": "TPS dose map with points:"},
+    "tps_r_profimg":{"pt": "Perfis de dose (PDD e laterais):", "en": "Dose profiles (PDD and lateral):"},
     "footer":       {"pt": "Chromis WEB · AAPM TG-218 · Autor: MACIEL, J. O.",
                      "en": "Chromis WEB - AAPM TG-218 - Author: MACIEL, J. O."},
     "none":         {"pt": "(não informado)", "en": "(not provided)"},
@@ -91,7 +100,8 @@ def _tr(key, lang):
 
 def generate_report(study, lang="pt", selected_modules=None,
                     logo_path=None, films_image=None, curve_image=None,
-                    dosemap_image=None):
+                    dosemap_image=None, tps_map_image=None,
+                    tps_profiles_image=None):
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4,
                             topMargin=16*mm, bottomMargin=16*mm,
@@ -243,6 +253,56 @@ def generate_report(study, lang="pt", selected_modules=None,
                 dimg = _fit_image(dosemap_image, 130*mm, 110*mm)
                 dimg.hAlign = "CENTER"
                 story.append(dimg)
+            except Exception:
+                pass
+
+    if want("tps"):
+        tp = study["tps"]
+        story.append(Paragraph(_tr("sec_tps", lang), h_sec))
+        md = tp.get("main_dose") or {}
+        info = [
+            [_tr("tps_r_maps", lang), str(tp.get("n_dose_maps", 0))],
+            [_tr("tps_r_npoints", lang), str(len(tp.get("points", []) or []))],
+        ]
+        if tp.get("central_point"):
+            info.append([_tr("tps_r_central", lang), str(tp["central_point"])])
+        if md.get("max_dose_cgy") is not None:
+            info.append([_tr("tps_r_maxdose", lang), "%.0f cGy" % md["max_dose_cgy"]])
+        story.append(_make_table(info))
+        story.append(Spacer(1, 6))
+
+        # Tabela de pontos (nome, X, Y, Z, dose do TPS)
+        pts = tp.get("points", []) or []
+        if pts:
+            header = [_tr("tps_r_pt", lang), "X (mm)", "Y (mm)", "Z (mm)",
+                      _tr("tps_r_dose", lang)]
+            prows = [header]
+            for p in pts:
+                prows.append([
+                    str(p.get("name", "?")),
+                    "%.1f" % p["x_mm"] if p.get("x_mm") is not None else "-",
+                    "%.1f" % p["y_mm"] if p.get("y_mm") is not None else "-",
+                    "%.1f" % p["z_mm"] if p.get("z_mm") is not None else "-",
+                    "%.1f" % p["tps_dose_cgy"] if p.get("tps_dose_cgy") is not None else "-",
+                ])
+            story.append(_make_data_table(prows))
+            story.append(Spacer(1, 6))
+
+        if tps_map_image:
+            try:
+                story.append(Paragraph(_tr("tps_r_mapimg", lang), cap))
+                timg = _fit_image(tps_map_image, 130*mm, 110*mm)
+                timg.hAlign = "CENTER"
+                story.append(timg)
+                story.append(Spacer(1, 6))
+            except Exception:
+                pass
+        if tps_profiles_image:
+            try:
+                story.append(Paragraph(_tr("tps_r_profimg", lang), cap))
+                pimg = _fit_image(tps_profiles_image, 175*mm, 60*mm)
+                pimg.hAlign = "CENTER"
+                story.append(pimg)
             except Exception:
                 pass
 

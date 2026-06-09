@@ -367,6 +367,8 @@ STRINGS = {
     "tps_lateral_depth":  {"pt": "Profundidade (Y) dos perfis laterais (mm)", "en": "Depth (Y) of lateral profiles (mm)"},
     "tps_lateral_depth_hint":{"pt": "Os perfis laterais X e Z sao tirados nesta profundidade. Por padrao, a profundidade do ponto de referencia (DMAX).",
                               "en": "Lateral X and Z profiles are taken at this depth. Default: the reference point (DMAX) depth."},
+    "tps_colormap":       {"pt": "Paleta de cores", "en": "Color palette"},
+    "tps_iso_label_pct":  {"pt": "Escrever % sobre as isodoses", "en": "Write % on isodose curves"},
 
 }
 
