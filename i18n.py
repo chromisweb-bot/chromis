@@ -339,6 +339,8 @@ STRINGS = {
                            "en": "Next step: compare these with the MEASURED film dose at the same points."},
     "tps_plane_with_points":{"pt": "Plano que contem os pontos", "en": "Plane containing the points"},
     "tps_plane_dose_map": {"pt": "Mapa de dose (plano dos pontos)", "en": "Dose map (points plane)"},
+    "tps_map_with_points":{"pt": "Mapa de dose do TPS com os pontos do filme", "en": "TPS dose map with film points"},
+    "tps_points_in_plane":{"pt": "pontos neste plano", "en": "points in this plane"},
 
 }
 

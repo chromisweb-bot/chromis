@@ -207,26 +207,33 @@ def tps_view(state, go):
         state["tps_points_dose"] = enriched
 
         # Mostra o PLANO CORRETO: a fatia do volume que contem os pontos
-        # (essencial para filme em pe, cujo plano nao e o axial z=0).
+        # (essencial para filme em pe, cujo plano nao e o axial z=0),
+        # COM os pontos do filme sobrepostos em alta qualidade.
         try:
             k, dose_2d_gy, z_mm = tp.slice_with_most_points(vol, geom, all_points)
-            from utils.dose_map_engine import render_dose_map_png
-            from isodose_engine import render_isodose_png, DEFAULT_CLINICAL_LEVELS
             dose_2d_cgy = dose_2d_gy * 100.0
             st.caption(f"{t('tps_plane_with_points')}: fatia {k}, z={z_mm:.1f} mm  ·  "
                        f"{t('tps_maxdose')} {dose_2d_cgy.max():.0f} cGy")
-            pcol1, pcol2 = st.columns(2)
-            with pcol1:
-                png = render_dose_map_png(dose_2d_cgy, unit="cGy", lang=get_lang(),
-                                          theme="dark", title=t("tps_plane_dose_map"))
-                st.image(png, use_container_width=True)
-            with pcol2:
-                iso = render_isodose_png(dose_2d_cgy, DEFAULT_CLINICAL_LEVELS,
-                                         basis="max", level_pcts=DEFAULT_CLINICAL_LEVELS,
-                                         unit="cGy", lang=get_lang(), theme="dark",
-                                         colormap="jet", show_background=True,
-                                         title=t("tps_isodose_preview"), smooth_sigma=1.0)
-                st.image(iso, use_container_width=True)
+
+            # Quais pontos caem nesta fatia (para plotar)
+            oz = geom["origin_mm"][2]
+            gfov = list(geom.get("grid_frame_offset", [0.0]))
+            spacing_z = (gfov[1]-gfov[0]) if len(gfov) > 1 else 1.0
+            pts_here = []
+            for q in enriched:
+                if q.get("z_mm") is None:
+                    continue
+                kp = int(round((q["z_mm"]-oz)/spacing_z)) if spacing_z else 0
+                if abs(kp - k) <= 1:
+                    pts_here.append(q)
+
+            from utils.dose_points_plot import render_dose_map_with_points
+            png = render_dose_map_with_points(
+                dose_2d_cgy, geom, pts_here, lang=get_lang(), theme="dark",
+                colormap="jet", title=t("tps_map_with_points"),
+                smooth_sigma=1.0, show_isodoses=True, label_points=True)
+            st.image(png, use_container_width=True)
+            st.caption(f"{len(pts_here)} {t('tps_points_in_plane')}")
         except Exception as e:
             st.caption(f"({t('tps_preview_fail')}: {e})")
 
