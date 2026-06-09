@@ -331,6 +331,14 @@ STRINGS = {
     "tps_iso_fail":       {"pt": "isodose indisponivel", "en": "isodose unavailable"},
     "tps_pt_name":        {"pt": "Ponto", "en": "Point"},
     "tps_pt_dose":        {"pt": "Dose planejada (cGy)", "en": "Planned dose (cGy)"},
+    "tps_pt_planned":     {"pt": "Dose do TPS no ponto (cGy)", "en": "TPS dose at point (cGy)"},
+    "tps_pointdose_title":{"pt": "Dose do TPS nos pontos do filme", "en": "TPS dose at film points"},
+    "tps_pointdose_hint": {"pt": "Dose planejada pelo TPS em cada ponto marcado, por interpolacao no volume 3D de dose.",
+                           "en": "TPS-planned dose at each marked point, by interpolation in the 3D dose volume."},
+    "tps_pointdose_next": {"pt": "Proximo passo: comparar estes valores com a dose MEDIDA no filme nos mesmos pontos.",
+                           "en": "Next step: compare these with the MEASURED film dose at the same points."},
+    "tps_plane_with_points":{"pt": "Plano que contem os pontos", "en": "Plane containing the points"},
+    "tps_plane_dose_map": {"pt": "Mapa de dose (plano dos pontos)", "en": "Dose map (points plane)"},
 
 }
 

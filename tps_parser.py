@@ -333,6 +333,7 @@ def read_dicom_dose(filepath_or_bytes, filename=None, slice_index=None):
         dose_2d = dose_2d / 100.0  # converter cGy → Gy
 
     # ── Metadados extras ───────────────────────────────────────────────────
+    grid_offset_full = list(getattr(ds, 'GridFrameOffsetVector', [0.0])) if dose_volume.ndim == 3 else [0.0]
     metadata = {
         'modality':             modality,
         'dose_units_original':  dose_units,
@@ -348,7 +349,23 @@ def read_dicom_dose(filepath_or_bytes, filename=None, slice_index=None):
         'pixel_spacing_mm':     pixel_spacing,
         'resolution_mm':        resolution_mm,
         'origin_patient_mm':    [origin_x, origin_y, origin_z],
+        'grid_frame_offset':    grid_offset_full,
         'tps':                  'Monaco' if 'monaco' in str(getattr(ds, 'ManufacturerModelName', '')).lower() else 'Desconhecido',
+    }
+
+    # Guarda o VOLUME 3D completo (em Gy) e a geometria, para permitir
+    # interpolacao trilinear da dose em pontos (X,Y,Z) e selecao do plano
+    # correto (ex: filme em pe). Sem isto, so teriamos a fatia 2D.
+    dose_volume_gy = dose_volume.copy()
+    if dose_units == 'CGY':
+        dose_volume_gy = dose_volume_gy / 100.0
+    if dose_volume_gy.ndim == 2:
+        dose_volume_gy = dose_volume_gy[np.newaxis, :, :]
+    metadata['dose_volume_gy'] = dose_volume_gy
+    metadata['geometry'] = {
+        'origin_mm': [origin_x, origin_y, origin_z],
+        'pixel_spacing_mm': pixel_spacing,           # [row_spacing, col_spacing]
+        'grid_frame_offset': grid_offset_full,       # offsets Z de cada fatia
     }
 
     info = {
@@ -969,6 +986,154 @@ def sample_points_dose_from_dose(dose_dist, points):
     return out
 
 
+def read_dicom_struct_points(filepath_or_bytes, filename=None, **kwargs):
+    """
+    Extrai PONTOS marcados de um DICOM RT Structure (RTSTRUCT).
+
+    No fluxo de filme, os pontos que o usuario marca (ex: DMAX e demais pontos
+    de interesse) sao gravados como estruturas do tipo ponto: cada ROI tem um
+    ContourData com uma unica coordenada (X,Y,Z) em mm (referencial paciente).
+
+    Estrutura DICOM percorrida:
+      StructureSetROISequence  -> ROINumber, ROIName
+      ROIContourSequence       -> ReferencedROINumber, ContourSequence[].ContourData
+      RTROIObservationsSequence-> ReferencedROINumber, RTROIInterpretedType
+
+    Returns:
+        DosePoints (lista de dicts name,x_mm,y_mm,z_mm[,roi_type]).
+    """
+    import pydicom  # noqa
+    content = _read_raw(filepath_or_bytes)
+    ds = _safe_dcmread(content)
+
+    # nome de cada ROI
+    roi_names = {}
+    for roi in getattr(ds, "StructureSetROISequence", []) or []:
+        num = getattr(roi, "ROINumber", None)
+        roi_names[num] = str(getattr(roi, "ROIName", f"ROI {num}"))
+
+    # tipo de cada ROI (POINT, PTV, etc.)
+    roi_types = {}
+    for obs in getattr(ds, "RTROIObservationsSequence", []) or \
+               getattr(ds, "ROIObservationSequence", []) or []:
+        num = getattr(obs, "ReferencedROINumber", None)
+        roi_types[num] = str(getattr(obs, "RTROIInterpretedType", ""))
+
+    points = []
+    for rc in getattr(ds, "ROIContourSequence", []) or []:
+        num = getattr(rc, "ReferencedROINumber", None)
+        name = roi_names.get(num, f"ROI {num}")
+        rtype = roi_types.get(num, "")
+        cseq = getattr(rc, "ContourSequence", None)
+        if not cseq:
+            continue
+        # Usa o primeiro contorno; para um "ponto" ha 1 tripla (x,y,z).
+        cont = cseq[0]
+        cdata = getattr(cont, "ContourData", None)
+        if not cdata:
+            continue
+        try:
+            pts = np.array([float(v) for v in cdata]).reshape(-1, 3)
+        except Exception:
+            continue
+        # Se for um unico ponto, usa-o; se for um contorno com varios vertices,
+        # usa o centroide (caso o usuario tenha desenhado um pequeno circulo).
+        if pts.shape[0] == 1:
+            xyz = pts[0]
+        else:
+            xyz = pts.mean(axis=0)
+        points.append({
+            "name": name,
+            "x_mm": float(xyz[0]),
+            "y_mm": float(xyz[1]),
+            "z_mm": float(xyz[2]),
+            "roi_type": rtype,
+            "n_vertices": int(pts.shape[0]),
+        })
+
+    metadata = {
+        "modality": str(getattr(ds, "Modality", "")),
+        "patient_id": str(getattr(ds, "PatientID", "")),
+        "structure_set_label": str(getattr(ds, "StructureSetLabel", "")),
+        "n_points": len(points),
+    }
+    dp = DosePoints(points, source="dicom_struct_points")
+    dp.metadata = metadata
+    return dp
+
+
+def interpolate_dose_3d(dose_volume_gy, geometry, x_mm, y_mm, z_mm):
+    """
+    Interpola (trilinear) a dose num ponto (x,y,z) em mm dentro de um volume
+    de dose 3D, usando a geometria do RTDOSE.
+
+    dose_volume_gy: array (n_slices, rows, cols) em Gy.
+    geometry: dict com origin_mm [ox,oy,oz], pixel_spacing_mm [row_sp, col_sp]
+              e grid_frame_offset (offsets Z de cada fatia).
+    Retorna a dose em Gy (float) ou None se fora do volume.
+    """
+    vol = dose_volume_gy
+    if vol.ndim == 2:
+        vol = vol[np.newaxis, :, :]
+    nk, ni, nj = vol.shape
+
+    ox, oy, oz = geometry["origin_mm"]
+    row_sp, col_sp = geometry["pixel_spacing_mm"][0], geometry["pixel_spacing_mm"][1]
+    gfov = list(geometry.get("grid_frame_offset", [0.0]))
+    spacing_z = (gfov[1] - gfov[0]) if len(gfov) > 1 else max(row_sp, 1.0)
+
+    # Coordenada -> indice continuo. PixelSpacing = [linha(Y), coluna(X)].
+    j = (x_mm - ox) / col_sp   # coluna
+    i = (y_mm - oy) / row_sp   # linha
+    k = (z_mm - oz) / spacing_z if spacing_z != 0 else 0.0
+
+    i0, j0, k0 = int(np.floor(i)), int(np.floor(j)), int(np.floor(k))
+    i0 = max(0, min(i0, ni - 2)); j0 = max(0, min(j0, nj - 2)); k0 = max(0, min(k0, nk - 2))
+    i1, j1, k1 = i0 + 1, j0 + 1, k0 + 1
+    di, dj, dk = i - i0, j - j0, k - k0
+    di = max(0.0, min(di, 1.0)); dj = max(0.0, min(dj, 1.0)); dk = max(0.0, min(dk, 1.0))
+
+    try:
+        d = (vol[k0, i0, j0]*(1-di)*(1-dj)*(1-dk) + vol[k0, i1, j0]*di*(1-dj)*(1-dk) +
+             vol[k0, i0, j1]*(1-di)*dj*(1-dk) + vol[k0, i1, j1]*di*dj*(1-dk) +
+             vol[k1, i0, j0]*(1-di)*(1-dj)*dk + vol[k1, i1, j0]*di*(1-dj)*dk +
+             vol[k1, i0, j1]*(1-di)*dj*dk + vol[k1, i1, j1]*di*dj*dk)
+        return float(d)
+    except Exception:
+        return None
+
+
+def slice_with_most_points(dose_volume_gy, geometry, points):
+    """
+    Dado o volume 3D e os pontos, retorna (indice_fatia, dose_2d, z_mm) da
+    fatia que CONTEM mais pontos do filme — abordagem correta para filme em
+    pe (plano nao-axial), em vez de pegar a fatia z=0.
+    """
+    vol = dose_volume_gy
+    if vol.ndim == 2:
+        return 0, vol, geometry["origin_mm"][2]
+    oz = geometry["origin_mm"][2]
+    gfov = list(geometry.get("grid_frame_offset", [0.0]))
+    spacing_z = (gfov[1] - gfov[0]) if len(gfov) > 1 else 1.0
+
+    from collections import Counter
+    counts = Counter()
+    for p in points:
+        if p.get("z_mm") is None:
+            continue
+        k = int(round((p["z_mm"] - oz) / spacing_z)) if spacing_z != 0 else 0
+        k = max(0, min(k, vol.shape[0] - 1))
+        counts[k] += 1
+    if not counts:
+        # sem pontos: cai na fatia de maior dose (melhor que z=0 p/ filme em pe)
+        per = [float(vol[i].max()) for i in range(vol.shape[0])]
+        k = int(np.argmax(per))
+    else:
+        k = counts.most_common(1)[0][0]
+    z = oz + (gfov[k] if k < len(gfov) else 0.0)
+    return k, vol[k], z
+
+
 def read_tps(filepath_or_bytes, filename=None, **kwargs):
     """
     Funcao universal: detecta formato e le automaticamente.
@@ -991,7 +1156,20 @@ def read_tps(filepath_or_bytes, filename=None, **kwargs):
             return result[0]
         return result
     elif fmt == 'dicom_struct':
-        return read_dicom_struct(filepath_or_bytes, filename, **kwargs)
+        # RTSTRUCT pode conter PONTOS marcados (fluxo de filme) ou contornos de
+        # estrutura. Tentamos pontos primeiro; se nao houver, usamos contornos.
+        want = kwargs.pop("struct_mode", "points")
+        if want == "points":
+            dp = read_dicom_struct_points(filepath_or_bytes, filename)
+            if dp.points:
+                return dp
+            # sem pontos -> tenta contornos de isodose
+            try:
+                return read_dicom_struct(filepath_or_bytes, filename, **kwargs)
+            except Exception:
+                return dp
+        else:
+            return read_dicom_struct(filepath_or_bytes, filename, **kwargs)
     elif fmt == 'dicom_plan':
         return read_dicom_plan(filepath_or_bytes, filename, **kwargs)
     elif fmt == 'dicom_image':

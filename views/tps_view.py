@@ -165,6 +165,73 @@ def tps_view(state, go):
                 f"{n_dose} {t('tps_dose_maps')}, {len(contours)} {t('tps_isodoses')}, "
                 f"{len(points)} {t('tps_pointsets')}")
 
+    # ── CRUZAMENTO: dose do TPS em cada ponto do filme ─────────────────────
+    # Se temos um RTDOSE com volume 3D E pontos (do RTSTRUCT), calculamos a
+    # dose planejada de cada ponto por interpolacao trilinear no volume.
+    vol_dist = None
+    for nm, d in dose_dists:
+        meta = d.metadata or {}
+        if meta.get("dose_volume_gy") is not None and meta.get("geometry"):
+            vol_dist = d
+            break
+
+    all_points = []
+    for nm, dp in points:
+        all_points.extend(dp.points or [])
+
+    if vol_dist is not None and all_points:
+        st.markdown(f"<hr style='border:none;border-top:0.5px solid {COLORS['border_soft']};margin:16px 0'>",
+                    unsafe_allow_html=True)
+        st.markdown(f"**{t('tps_pointdose_title')}**")
+        st.caption(t("tps_pointdose_hint"))
+        meta = vol_dist.metadata
+        vol = meta["dose_volume_gy"]
+        geom = meta["geometry"]
+        import pandas as pd
+        rows = []
+        enriched = []
+        for p in all_points:
+            d_gy = None
+            if p.get("x_mm") is not None:
+                d_gy = tp.interpolate_dose_3d(vol, geom, p["x_mm"], p["y_mm"], p["z_mm"])
+            q = dict(p); q["tps_dose_gy"] = d_gy
+            enriched.append(q)
+            rows.append({
+                t("tps_pt_name"): p.get("name", "?"),
+                "X (mm)": round(p.get("x_mm", 0), 1) if p.get("x_mm") is not None else "-",
+                "Y (mm)": round(p.get("y_mm", 0), 1) if p.get("y_mm") is not None else "-",
+                "Z (mm)": round(p.get("z_mm", 0), 1) if p.get("z_mm") is not None else "-",
+                t("tps_pt_planned"): f"{d_gy*100:.1f}" if d_gy is not None else "-",
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        state["tps_points_dose"] = enriched
+
+        # Mostra o PLANO CORRETO: a fatia do volume que contem os pontos
+        # (essencial para filme em pe, cujo plano nao e o axial z=0).
+        try:
+            k, dose_2d_gy, z_mm = tp.slice_with_most_points(vol, geom, all_points)
+            from utils.dose_map_engine import render_dose_map_png
+            from isodose_engine import render_isodose_png, DEFAULT_CLINICAL_LEVELS
+            dose_2d_cgy = dose_2d_gy * 100.0
+            st.caption(f"{t('tps_plane_with_points')}: fatia {k}, z={z_mm:.1f} mm  ·  "
+                       f"{t('tps_maxdose')} {dose_2d_cgy.max():.0f} cGy")
+            pcol1, pcol2 = st.columns(2)
+            with pcol1:
+                png = render_dose_map_png(dose_2d_cgy, unit="cGy", lang=get_lang(),
+                                          theme="dark", title=t("tps_plane_dose_map"))
+                st.image(png, use_container_width=True)
+            with pcol2:
+                iso = render_isodose_png(dose_2d_cgy, DEFAULT_CLINICAL_LEVELS,
+                                         basis="max", level_pcts=DEFAULT_CLINICAL_LEVELS,
+                                         unit="cGy", lang=get_lang(), theme="dark",
+                                         colormap="jet", show_background=True,
+                                         title=t("tps_isodose_preview"), smooth_sigma=1.0)
+                st.image(iso, use_container_width=True)
+        except Exception as e:
+            st.caption(f"({t('tps_preview_fail')}: {e})")
+
+        st.info(t("tps_pointdose_next"))
+
     # Se houver mais de um mapa de dose, deixa escolher qual e o principal
     chosen_idx = 0
     if n_dose > 1:
