@@ -184,6 +184,27 @@ def render_dose_profiles(dose_volume_gy, geometry, ref_point, points=None,
         mx = float(np.nanmax(arr)) if arr.size else 0.0
         return (arr / mx * 100.0) if mx > 0 else arr, mx
 
+    def _field_window(coords_rel, pct_arr, margin_mm=20.0):
+        """
+        Encontra os limites do campo (onde a dose cruza 50% do maximo) e
+        retorna (xmin, xmax) com uma margem. Foca o grafico no campo, cortando
+        as regioes distantes de dose ~0 (informacao desnecessaria).
+        Retorna None se nao houver cruzamento claro (mantem auto-escala).
+        """
+        try:
+            arr = np.asarray(pct_arr, dtype=float)
+            xs = np.asarray(coords_rel, dtype=float)
+            above = arr >= 50.0
+            if not above.any():
+                return None
+            idx = np.where(above)[0]
+            left = xs[idx[0]]
+            right = xs[idx[-1]]
+            lo, hi = min(left, right), max(left, right)
+            return (lo - margin_mm, hi + margin_mm)
+        except Exception:
+            return None
+
     def _overlay_points(ax, axis, perfil_max_gy, fixed_tol_mm=8.0):
         """Sobrepoe pontos: posicao RELATIVA ao R0 e dose RELATIVA (% do max)."""
         if not (show_points and points) or perfil_max_gy <= 0:
@@ -261,6 +282,20 @@ def render_dose_profiles(dose_volume_gy, geometry, ref_point, points=None,
     axes[2].set_ylabel(("Dose relativa (%)" if is_pt else "Relative dose (%)"), color=fg)
     axes[2].legend(loc="best", fontsize=8, framealpha=0.85, facecolor=bg, edgecolor=fg, labelcolor=fg)
     _overlay_points(axes[2], "Z", latz_max)
+
+    # ── Foco no campo: limita os eixos X e Z a (50% + 20 mm de margem) ──────
+    # Usa a MESMA janela para X e Z, para ficarem diretamente comparaveis
+    # (campo quadrado -> mesmas dimensoes). Corta o excesso de dose ~0.
+    win_x = _field_window(x_rel, latx_pct, margin_mm=20.0)
+    win_z = _field_window(z_rel, latz_pct, margin_mm=20.0)
+    wins = [w for w in (win_x, win_z) if w is not None]
+    if wins:
+        lo = min(w[0] for w in wins)
+        hi = max(w[1] for w in wins)
+        # simetriza em torno do zero (R0) para um visual limpo
+        half = max(abs(lo), abs(hi))
+        axes[1].set_xlim(-half, half)
+        axes[2].set_xlim(-half, half)
 
     # Aviso de truncamento em Z: se as bordas nao chegam perto de 0.
     if latz.size > 4:
