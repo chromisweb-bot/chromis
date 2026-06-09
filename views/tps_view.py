@@ -275,12 +275,25 @@ def _render_points_analysis(state, tp, np, vol_dist, enriched):
     if show_points:
         st.caption(f"{len(pts_here)} {t('tps_points_in_plane')}")
 
-    # Perfis pelo ponto central escolhido
+    # Perfis: PDD no eixo central + laterais na profundidade escolhida
     ref = next((q for q in valid if q["name"] == central), pmax)
     st.markdown(f"**{t('tps_profiles')}** — {t('tps_pt_name')}: {ref['name']}")
+
+    # Profundidade (Y) dos perfis laterais: padrao = a do ponto de referencia.
+    ys = [q["y_mm"] for q in valid if q.get("y_mm") is not None]
+    if ys:
+        ymin, ymax = float(min(ys)), float(max(ys))
+        depth_y = st.slider(
+            t("tps_lateral_depth"), min_value=round(ymin, 1), max_value=round(ymax, 1),
+            value=float(round(ref["y_mm"], 1)),
+            help=t("tps_lateral_depth_hint"), key="tps_lat_depth")
+    else:
+        depth_y = ref.get("y_mm")
+
     try:
         prof = render_dose_profiles(vol, geom, ref,
-                                    points=valid if show_points else None,
+                                    points=valid, show_points=show_points,
+                                    lateral_depth_y_mm=depth_y,
                                     lang=get_lang(), theme="dark")
         st.image(prof, use_container_width=True)
     except Exception as e:

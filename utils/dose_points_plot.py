@@ -117,15 +117,29 @@ def render_dose_map_with_points(dose_2d_cgy, geometry, points_in_slice,
 
 
 def render_dose_profiles(dose_volume_gy, geometry, ref_point, points=None,
-                         lang="pt", theme="dark", dpi=150):
+                         lang="pt", theme="dark", dpi=150,
+                         lateral_depth_y_mm=None, show_points=True):
     """
-    Gera os 3 perfis de dose (horizontal X, vertical Y, profundidade Z) que
-    passam por um ponto de referencia (ex: DMAX), com os demais pontos marcados.
+    Gera os perfis de dose com a geometria FISICA correta para um filme
+    irradiado com o feixe entrando ao longo de Y (gantry 0):
 
-    dose_volume_gy: volume 3D (n_slices, rows, cols) em Gy.
-    geometry: origin_mm, pixel_spacing_mm [row_sp,col_sp], grid_frame_offset.
-    ref_point: dict com x_mm,y_mm,z_mm (ponto de referencia, ex: DMAX).
-    points: lista de pontos para marcar nos perfis (opcional).
+      - PDD (dose vs Y / profundidade): tirado no EIXO CENTRAL do campo, isto e,
+        no (X,Z) onde a dose lateral e maxima. Mostra o decaimento em profundidade.
+      - Perfil lateral X (dose vs X): tirado na PROFUNDIDADE do campo de interesse
+        (por padrao, a profundidade Y do ponto de referencia / DMAX), onde o campo
+        e o 5x5 que se quer avaliar — NAO na profundidade do R0.
+      - Perfil lateral Z (dose vs Z): idem, na mesma profundidade. Se a curva nao
+        cair ate ~0 nas bordas, avisa que o volume de dose esta truncado em Z.
+
+    Assim cada perfil passa pelo lugar fisicamente correto, em vez de todos
+    cruzarem o mesmo ponto.
+
+    Parametros:
+      ref_point: ponto de referencia (define a profundidade dos laterais e marca
+                 a posicao nos graficos). Tipicamente o DMAX.
+      lateral_depth_y_mm: profundidade Y (mm) dos perfis laterais. Se None, usa a
+                 profundidade do ref_point.
+      show_points: se True e points for dado, sobrepoe os pontos nos perfis.
     Retorna bytes PNG.
     """
     vol = dose_volume_gy
@@ -136,65 +150,123 @@ def render_dose_profiles(dose_volume_gy, geometry, ref_point, points=None,
     ox, oy, oz = geometry["origin_mm"]
     row_sp, col_sp = geometry["pixel_spacing_mm"][0], geometry["pixel_spacing_mm"][1]
     gfov = list(geometry.get("grid_frame_offset", [0.0]))
-    spacing_z = (gfov[1]-gfov[0]) if len(gfov) > 1 else max(row_sp, 1.0)
+    spacing_z = (gfov[1] - gfov[0]) if len(gfov) > 1 else max(row_sp, 1.0)
 
-    # indices do ponto de referencia
-    jx = int(round((ref_point["x_mm"]-ox)/col_sp)); jx = max(0, min(jx, nj-1))
-    iy = int(round((ref_point["y_mm"]-oy)/row_sp)); iy = max(0, min(iy, ni-1))
-    kz = int(round((ref_point["z_mm"]-oz)/spacing_z)) if spacing_z else 0
-    kz = max(0, min(kz, nk-1))
-
+    is_pt = lang == "pt"
     if theme == "dark":
         bg, fg = "#0d1117", "#e6edf3"
     else:
         bg, fg = "#ffffff", "#1e293b"
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5), dpi=dpi)
-    fig.patch.set_facecolor(bg)
-
     refname = ref_point.get("name", "ref")
     rx, ry, rz = ref_point["x_mm"], ref_point["y_mm"], ref_point["z_mm"]
-    is_pt = lang == "pt"
 
-    def _mark_ref(ax, coord_value, axis_letter):
-        """Marca o ponto de referencia com linha + rotulo (nome e valor)."""
-        ax.axvline(coord_value, color="#ff5555", ls="--", alpha=0.85, lw=1.4,
-                   label=f"{refname} ({axis_letter}={coord_value:.1f} mm)")
-        ax.legend(loc="best", fontsize=8, framealpha=0.85,
-                  facecolor=bg, edgecolor=fg, labelcolor=fg)
+    # ── Acha o EIXO CENTRAL do campo (X,Z de dose maxima) ───────────────────
+    # Usamos a posicao do voxel de dose maxima do volume como o eixo central.
+    kmax, imax, jmax = np.unravel_index(int(np.argmax(vol)), vol.shape)
+    # Coordenadas fisicas do eixo central
+    x_central = ox + jmax * col_sp
+    z_central = oz + (gfov[kmax] if kmax < len(gfov) else kmax * spacing_z)
 
-    # ── Perfil X (lateral): varia coluna j, fixa i=iy, k=kz ────────────────
-    perfil_x = vol[kz, iy, :]
-    x_coords = [ox + j*col_sp for j in range(nj)]
-    axes[0].plot(x_coords, perfil_x, color="#4da3ff", lw=1.6)
-    _mark_ref(axes[0], rx, "X")
-    axes[0].set_title(("Perfil lateral em X" if is_pt else "Lateral profile in X")
-                      + f"\n(Y={ry:.1f}, Z={rz:.1f} mm fixos)",
+    # Profundidade dos perfis laterais (Y): padrao = a do ref_point (DMAX)
+    if lateral_depth_y_mm is None:
+        lateral_depth_y_mm = ry
+    i_lat = int(round((lateral_depth_y_mm - oy) / row_sp)); i_lat = max(0, min(i_lat, ni - 1))
+
+    # indices do eixo central
+    j_cen = max(0, min(jmax, nj - 1))
+    k_cen = max(0, min(kmax, nk - 1))
+
+    n_panels = 3
+    fig, axes = plt.subplots(1, n_panels, figsize=(18, 5), dpi=dpi)
+    fig.patch.set_facecolor(bg)
+
+    def _overlay_points(ax, axis, fixed_tol_mm=8.0):
+        """Sobrepoe pontos cujos OUTROS eixos batem com o perfil (tolerancia)."""
+        if not (show_points and points):
+            return
+        for p in points:
+            if str(p.get("name", "")).lower() == "patient":
+                continue
+            d = p.get("tps_dose_gy")
+            if d is None or p.get("x_mm") is None:
+                continue
+            if axis == "Y":   # PDD no eixo central: pontos com X,Z ~ central
+                if abs(p["x_mm"] - x_central) <= fixed_tol_mm and abs(p["z_mm"] - z_central) <= fixed_tol_mm:
+                    ax.plot(p["y_mm"], d, "o", color="#ffd166", markersize=6,
+                            markeredgecolor="#b8860b", zorder=10)
+                    ax.annotate(p["name"], (p["y_mm"], d), fontsize=6, color=fg,
+                                xytext=(4, 3), textcoords="offset points")
+            elif axis == "X":  # lateral em X: pontos na profundidade Y_lat e Z central
+                if abs(p["y_mm"] - lateral_depth_y_mm) <= fixed_tol_mm and abs(p["z_mm"] - z_central) <= fixed_tol_mm:
+                    ax.plot(p["x_mm"], d, "o", color="#ffd166", markersize=6,
+                            markeredgecolor="#b8860b", zorder=10)
+                    ax.annotate(p["name"], (p["x_mm"], d), fontsize=6, color=fg,
+                                xytext=(4, 3), textcoords="offset points")
+            elif axis == "Z":  # lateral em Z: pontos na profundidade Y_lat e X central
+                if abs(p["y_mm"] - lateral_depth_y_mm) <= fixed_tol_mm and abs(p["x_mm"] - x_central) <= fixed_tol_mm:
+                    ax.plot(p["z_mm"], d, "o", color="#ffd166", markersize=6,
+                            markeredgecolor="#b8860b", zorder=10)
+                    ax.annotate(p["name"], (p["z_mm"], d), fontsize=6, color=fg,
+                                xytext=(4, 3), textcoords="offset points")
+
+    # ── 1) PDD: dose vs Y, no eixo central (j_cen, k_cen) ───────────────────
+    pdd = vol[k_cen, :, j_cen]
+    y_coords = [oy + i * row_sp for i in range(ni)]
+    axes[0].plot(y_coords, pdd, color="#5fd35f", lw=1.7)
+    axes[0].axvline(ry, color="#ff5555", ls="--", alpha=0.85, lw=1.3,
+                    label=f"{refname} (Y={ry:.1f} mm)")
+    axes[0].set_title(("PDD — dose × profundidade" if is_pt else "PDD — dose vs depth")
+                      + f"\n(eixo central X={x_central:.1f}, Z={z_central:.1f} mm)",
                       color=fg, fontsize=10)
-    axes[0].set_xlabel("X DICOM (mm) — " + ("lateral" if is_pt else "lateral"), color=fg)
+    axes[0].set_xlabel("Y DICOM (mm) — " + ("profundidade" if is_pt else "depth"), color=fg)
     axes[0].set_ylabel("Dose (Gy)", color=fg)
+    axes[0].legend(loc="best", fontsize=8, framealpha=0.85, facecolor=bg,
+                   edgecolor=fg, labelcolor=fg)
+    _overlay_points(axes[0], "Y")
 
-    # ── Perfil Y (PROFUNDIDADE / PDD): varia linha i, fixa j=jx, k=kz ──────
-    perfil_y = vol[kz, :, jx]
-    y_coords = [oy + i*row_sp for i in range(ni)]
-    axes[1].plot(y_coords, perfil_y, color="#5fd35f", lw=1.6)
-    _mark_ref(axes[1], ry, "Y")
-    axes[1].set_title(("Perfil em profundidade (PDD)" if is_pt else "Depth profile (PDD)")
-                      + f"\n(X={rx:.1f}, Z={rz:.1f} mm fixos)",
+    # ── 2) Lateral X: dose vs X, na profundidade Y_lat e Z central ──────────
+    latx = vol[k_cen, i_lat, :]
+    x_coords = [ox + j * col_sp for j in range(nj)]
+    axes[1].plot(x_coords, latx, color="#4da3ff", lw=1.7)
+    axes[1].axvline(x_central, color="#ff5555", ls="--", alpha=0.6, lw=1.1,
+                    label=("eixo central" if is_pt else "central axis"))
+    axes[1].set_title(("Perfil lateral X" if is_pt else "Lateral profile X")
+                      + f"\n(profundidade Y={lateral_depth_y_mm:.1f} mm)",
                       color=fg, fontsize=10)
-    axes[1].set_xlabel("Y DICOM (mm) — " + ("profundidade" if is_pt else "depth"), color=fg)
+    axes[1].set_xlabel("X DICOM (mm) — " + ("lateral" if is_pt else "lateral"), color=fg)
     axes[1].set_ylabel("Dose (Gy)", color=fg)
+    axes[1].legend(loc="best", fontsize=8, framealpha=0.85, facecolor=bg,
+                   edgecolor=fg, labelcolor=fg)
+    _overlay_points(axes[1], "X")
 
-    # ── Perfil Z (lateral): varia fatia k, fixa i=iy, j=jx ────────────────
-    perfil_z = vol[:, iy, jx]
-    z_coords = [oz + (gfov[k] if k < len(gfov) else k*spacing_z) for k in range(nk)]
-    axes[2].plot(z_coords, perfil_z, color="#ff6b6b", lw=1.6)
-    _mark_ref(axes[2], rz, "Z")
-    axes[2].set_title(("Perfil lateral em Z" if is_pt else "Lateral profile in Z")
-                      + f"\n(X={rx:.1f}, Y={ry:.1f} mm fixos)",
+    # ── 3) Lateral Z: dose vs Z, na profundidade Y_lat e X central ──────────
+    latz = vol[:, i_lat, j_cen]
+    z_coords = [oz + (gfov[k] if k < len(gfov) else k * spacing_z) for k in range(nk)]
+    axes[2].plot(z_coords, latz, color="#ff6b6b", lw=1.7)
+    axes[2].axvline(z_central, color="#ff5555", ls="--", alpha=0.6, lw=1.1,
+                    label=("eixo central" if is_pt else "central axis"))
+    axes[2].set_title(("Perfil lateral Z" if is_pt else "Lateral profile Z")
+                      + f"\n(profundidade Y={lateral_depth_y_mm:.1f} mm)",
                       color=fg, fontsize=10)
     axes[2].set_xlabel("Z DICOM (mm) — " + ("lateral" if is_pt else "lateral"), color=fg)
     axes[2].set_ylabel("Dose (Gy)", color=fg)
+    axes[2].legend(loc="best", fontsize=8, framealpha=0.85, facecolor=bg,
+                   edgecolor=fg, labelcolor=fg)
+    _overlay_points(axes[2], "Z")
+
+    # Aviso de truncamento em Z: se as bordas nao chegam perto de 0.
+    if latz.size > 4:
+        edge = max(latz[0], latz[-1])
+        peak = latz.max()
+        if peak > 0 and edge > 0.15 * peak:
+            msg = ("⚠ Perfil Z truncado: o volume de dose do TPS nao se estende o "
+                   "suficiente em Z para a dose cair a zero nas bordas."
+                   if is_pt else
+                   "⚠ Z profile truncated: TPS dose volume does not extend far "
+                   "enough in Z for the dose to reach zero at the edges.")
+            axes[2].text(0.5, -0.22, msg, transform=axes[2].transAxes,
+                         ha="center", va="top", fontsize=7.5, color="#ffb454", wrap=True)
 
     for ax in axes:
         ax.set_facecolor(bg)
@@ -203,7 +275,8 @@ def render_dose_profiles(dose_volume_gy, geometry, ref_point, points=None,
         for sp in ax.spines.values():
             sp.set_color(fg)
 
-    sup = f"Perfis de Dose - Referencia: {refname}" if lang=="pt" else f"Dose profiles - Reference: {refname}"
+    sup = (f"Perfis de Dose — eixo central do campo (ref.: {refname})" if is_pt
+           else f"Dose profiles — field central axis (ref.: {refname})")
     fig.suptitle(sup, color=fg, fontsize=13, fontweight="bold")
     fig.tight_layout()
     buf = io.BytesIO()

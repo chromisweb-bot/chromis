@@ -364,6 +364,9 @@ STRINGS = {
     "tps_show_points_imgs":{"pt": "Mostrar os pontos nas imagens", "en": "Show points on images"},
     "tps_maps_title":     {"pt": "Mapa de dose e mapa de isodose", "en": "Dose map and isodose map"},
     "tps_iso_levels_label":{"pt": "Niveis de isodose (% da dose maxima)", "en": "Isodose levels (% of max dose)"},
+    "tps_lateral_depth":  {"pt": "Profundidade (Y) dos perfis laterais (mm)", "en": "Depth (Y) of lateral profiles (mm)"},
+    "tps_lateral_depth_hint":{"pt": "Os perfis laterais X e Z sao tirados nesta profundidade. Por padrao, a profundidade do ponto de referencia (DMAX).",
+                              "en": "Lateral X and Z profiles are taken at this depth. Default: the reference point (DMAX) depth."},
 
 }
 
