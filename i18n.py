@@ -363,6 +363,7 @@ STRINGS = {
                            "en": "Film dose and Error columns will be filled after scanning and registering the measured film."},
     "tps_show_points_imgs":{"pt": "Mostrar os pontos nas imagens", "en": "Show points on images"},
     "tps_maps_title":     {"pt": "Mapa de dose e mapa de isodose", "en": "Dose map and isodose map"},
+    "tps_iso_levels_label":{"pt": "Niveis de isodose (% da dose maxima)", "en": "Isodose levels (% of max dose)"},
 
 }
 

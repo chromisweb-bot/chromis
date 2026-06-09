@@ -225,8 +225,28 @@ def _render_points_analysis(state, tp, np, vol_dist, enriched):
             pts_here.append(q)
 
     from utils.dose_map_engine import render_dose_map_png
-    from isodose_engine import render_isodose_png, DEFAULT_CLINICAL_LEVELS
+    from isodose_engine import (render_isodose_png, DEFAULT_CLINICAL_LEVELS,
+                                 LEVELS_10_TO_150)
     from utils.dose_points_plot import render_dose_map_with_points, render_dose_profiles
+
+    # Seletor de niveis de isodose (presets + edicao livre), % da dose maxima.
+    st.caption(t("iso_presets"))
+    bp1, bp2, bp3 = st.columns(3)
+    if bp1.button(t("iso_preset_clinical"), use_container_width=True, key="tps_iso_p1"):
+        st.session_state["tps_iso_levels"] = ", ".join(str(x) for x in DEFAULT_CLINICAL_LEVELS)
+    if bp2.button("10 → 150", use_container_width=True, key="tps_iso_p2"):
+        st.session_state["tps_iso_levels"] = ", ".join(str(x) for x in LEVELS_10_TO_150)
+    if bp3.button(t("iso_preset_main"), use_container_width=True, key="tps_iso_p3"):
+        st.session_state["tps_iso_levels"] = "50, 100"
+    levels_str = st.text_input(t("tps_iso_levels_label"),
+                               value=", ".join(str(x) for x in DEFAULT_CLINICAL_LEVELS),
+                               key="tps_iso_levels", help=t("iso_levels_pct_hint"))
+    try:
+        iso_levels = [float(x.strip()) for x in levels_str.split(",") if x.strip()]
+    except Exception:
+        st.error(t("iso_levels_err")); iso_levels = list(DEFAULT_CLINICAL_LEVELS)
+    if not iso_levels:
+        iso_levels = list(DEFAULT_CLINICAL_LEVELS)
 
     # Mapa de dose e mapa de isodose (lado a lado)
     st.markdown(f"**{t('tps_maps_title')}**")
@@ -236,8 +256,8 @@ def _render_points_analysis(state, tp, np, vol_dist, enriched):
                                   theme="dark", title=t("tps_plane_dose_map"))
         st.image(png, use_container_width=True)
     with cc2:
-        iso = render_isodose_png(dose_2d_cgy, DEFAULT_CLINICAL_LEVELS, basis="max",
-                                 level_pcts=DEFAULT_CLINICAL_LEVELS, unit="cGy",
+        iso = render_isodose_png(dose_2d_cgy, iso_levels, basis="max",
+                                 level_pcts=iso_levels, unit="cGy",
                                  lang=get_lang(), theme="dark", colormap="jet",
                                  show_background=True, title=t("tps_isodose_preview"),
                                  smooth_sigma=1.0)
@@ -245,10 +265,12 @@ def _render_points_analysis(state, tp, np, vol_dist, enriched):
 
     # Mapa de dose com pontos
     st.markdown(f"**{t('tps_map_with_points')}**")
+    iso_fracs = tuple(iso_levels)  # usados como % da dose maxima no mapa c/ pontos
     png_pts = render_dose_map_with_points(
         dose_2d_cgy, geom, pts_here if show_points else [], lang=get_lang(),
         theme="dark", colormap="jet", title=t("tps_map_with_points"),
-        smooth_sigma=1.0, show_isodoses=True, label_points=show_points)
+        smooth_sigma=1.0, show_isodoses=True, level_pcts=iso_fracs,
+        label_points=show_points)
     st.image(png_pts, use_container_width=True)
     if show_points:
         st.caption(f"{len(pts_here)} {t('tps_points_in_plane')}")
