@@ -179,9 +179,14 @@ def render_dose_profiles(dose_volume_gy, geometry, ref_point, points=None,
     fig, axes = plt.subplots(1, n_panels, figsize=(18, 5), dpi=dpi)
     fig.patch.set_facecolor(bg)
 
-    def _overlay_points(ax, axis, fixed_tol_mm=8.0):
-        """Sobrepoe pontos cujos OUTROS eixos batem com o perfil (tolerancia)."""
-        if not (show_points and points):
+    # Funcao para normalizar em % do maximo do proprio perfil.
+    def _to_pct(arr):
+        mx = float(np.nanmax(arr)) if arr.size else 0.0
+        return (arr / mx * 100.0) if mx > 0 else arr, mx
+
+    def _overlay_points(ax, axis, perfil_max_gy, fixed_tol_mm=8.0):
+        """Sobrepoe pontos: posicao RELATIVA ao R0 e dose RELATIVA (% do max)."""
+        if not (show_points and points) or perfil_max_gy <= 0:
             return
         for p in points:
             if str(p.get("name", "")).lower() == "patient":
@@ -189,70 +194,73 @@ def render_dose_profiles(dose_volume_gy, geometry, ref_point, points=None,
             d = p.get("tps_dose_gy")
             if d is None or p.get("x_mm") is None:
                 continue
-            if axis == "Y":   # PDD no eixo central: pontos com X,Z ~ central
+            d_pct = d / perfil_max_gy * 100.0
+            if axis == "Y":   # PDD: pontos no eixo central (X,Z ~ R0)
                 if abs(p["x_mm"] - x_central) <= fixed_tol_mm and abs(p["z_mm"] - z_central) <= fixed_tol_mm:
-                    ax.plot(p["y_mm"], d, "o", color="#ffd166", markersize=6,
+                    rel = p["y_mm"] - ry
+                    ax.plot(rel, d_pct, "o", color="#ffd166", markersize=6,
                             markeredgecolor="#b8860b", zorder=10)
-                    ax.annotate(p["name"], (p["y_mm"], d), fontsize=6, color=fg,
+                    ax.annotate(p["name"], (rel, d_pct), fontsize=6, color=fg,
                                 xytext=(4, 3), textcoords="offset points")
-            elif axis == "X":  # lateral em X: pontos na profundidade Y_lat e Z central
+            elif axis == "X":
                 if abs(p["y_mm"] - lateral_depth_y_mm) <= fixed_tol_mm and abs(p["z_mm"] - z_central) <= fixed_tol_mm:
-                    ax.plot(p["x_mm"], d, "o", color="#ffd166", markersize=6,
+                    rel = p["x_mm"] - x_central
+                    ax.plot(rel, d_pct, "o", color="#ffd166", markersize=6,
                             markeredgecolor="#b8860b", zorder=10)
-                    ax.annotate(p["name"], (p["x_mm"], d), fontsize=6, color=fg,
+                    ax.annotate(p["name"], (rel, d_pct), fontsize=6, color=fg,
                                 xytext=(4, 3), textcoords="offset points")
-            elif axis == "Z":  # lateral em Z: pontos na profundidade Y_lat e X central
+            elif axis == "Z":
                 if abs(p["y_mm"] - lateral_depth_y_mm) <= fixed_tol_mm and abs(p["x_mm"] - x_central) <= fixed_tol_mm:
-                    ax.plot(p["z_mm"], d, "o", color="#ffd166", markersize=6,
+                    rel = p["z_mm"] - z_central
+                    ax.plot(rel, d_pct, "o", color="#ffd166", markersize=6,
                             markeredgecolor="#b8860b", zorder=10)
-                    ax.annotate(p["name"], (p["z_mm"], d), fontsize=6, color=fg,
+                    ax.annotate(p["name"], (rel, d_pct), fontsize=6, color=fg,
                                 xytext=(4, 3), textcoords="offset points")
 
-    # ── 1) PDD: dose vs Y, no eixo central = (X,Z) do ponto de referencia ───
+    # ── 1) PDD: dose RELATIVA vs profundidade, eixo relativo ao R0 ──────────
     pdd = vol[k_cen, :, j_cen]
-    y_coords = [oy + i * row_sp for i in range(ni)]
-    axes[0].plot(y_coords, pdd, color="#5fd35f", lw=1.7)
-    axes[0].axvline(ry, color="#ff5555", ls="--", alpha=0.85, lw=1.3,
-                    label=f"{refname} (Y={ry:.1f} mm)")
-    axes[0].set_title(("PDD — dose × profundidade" if is_pt else "PDD — dose vs depth")
-                      + f"\n({'eixo central' if is_pt else 'central axis'} = {refname}: "
-                      + f"X={x_central:.1f}, Z={z_central:.1f} mm)",
+    pdd_pct, pdd_max = _to_pct(pdd)
+    y_rel = [(oy + i * row_sp) - ry for i in range(ni)]   # distancia ao R0
+    axes[0].plot(y_rel, pdd_pct, color="#5fd35f", lw=1.7)
+    axes[0].axvline(0, color="#ff5555", ls="--", alpha=0.85, lw=1.3,
+                    label=f"{refname} (0 = Y {ry:.1f} mm)")
+    axes[0].set_title(("PDD — dose relativa × profundidade" if is_pt else "PDD — relative dose vs depth")
+                      + f"\n({'eixo central' if is_pt else 'central axis'} = {refname})",
                       color=fg, fontsize=10)
-    axes[0].set_xlabel("Y DICOM (mm) — " + ("profundidade" if is_pt else "depth"), color=fg)
-    axes[0].set_ylabel("Dose (Gy)", color=fg)
-    axes[0].legend(loc="best", fontsize=8, framealpha=0.85, facecolor=bg,
-                   edgecolor=fg, labelcolor=fg)
-    _overlay_points(axes[0], "Y")
+    axes[0].set_xlabel(("Profundidade relativa ao " if is_pt else "Depth relative to ") + refname + " (mm)", color=fg)
+    axes[0].set_ylabel(("Dose relativa (%)" if is_pt else "Relative dose (%)"), color=fg)
+    axes[0].legend(loc="best", fontsize=8, framealpha=0.85, facecolor=bg, edgecolor=fg, labelcolor=fg)
+    _overlay_points(axes[0], "Y", pdd_max)
 
-    # ── 2) Lateral X: dose vs X, na profundidade Y_lat e Z central ──────────
+    # ── 2) Lateral X: dose RELATIVA vs X, eixo relativo ao R0 ───────────────
     latx = vol[k_cen, i_lat, :]
-    x_coords = [ox + j * col_sp for j in range(nj)]
-    axes[1].plot(x_coords, latx, color="#4da3ff", lw=1.7)
-    axes[1].axvline(x_central, color="#ff5555", ls="--", alpha=0.85, lw=1.3,
-                    label=f"{refname} (X={x_central:.1f} mm)")
+    latx_pct, latx_max = _to_pct(latx)
+    x_rel = [(ox + j * col_sp) - x_central for j in range(nj)]
+    axes[1].plot(x_rel, latx_pct, color="#4da3ff", lw=1.7)
+    axes[1].axvline(0, color="#ff5555", ls="--", alpha=0.85, lw=1.3,
+                    label=f"{refname} (X)")
     axes[1].set_title(("Perfil lateral X" if is_pt else "Lateral profile X")
-                      + f"\n(profundidade Y={lateral_depth_y_mm:.1f} mm)",
+                      + f"\n({'profundidade Y' if is_pt else 'depth Y'}={lateral_depth_y_mm:.1f} mm)",
                       color=fg, fontsize=10)
-    axes[1].set_xlabel("X DICOM (mm) — " + ("lateral" if is_pt else "lateral"), color=fg)
-    axes[1].set_ylabel("Dose (Gy)", color=fg)
-    axes[1].legend(loc="best", fontsize=8, framealpha=0.85, facecolor=bg,
-                   edgecolor=fg, labelcolor=fg)
-    _overlay_points(axes[1], "X")
+    axes[1].set_xlabel(("Posicao em X relativa ao " if is_pt else "X position relative to ") + refname + " (mm)", color=fg)
+    axes[1].set_ylabel(("Dose relativa (%)" if is_pt else "Relative dose (%)"), color=fg)
+    axes[1].legend(loc="best", fontsize=8, framealpha=0.85, facecolor=bg, edgecolor=fg, labelcolor=fg)
+    _overlay_points(axes[1], "X", latx_max)
 
-    # ── 3) Lateral Z: dose vs Z, na profundidade Y_lat e X central ──────────
+    # ── 3) Lateral Z: dose RELATIVA vs Z, eixo relativo ao R0 ───────────────
     latz = vol[:, i_lat, j_cen]
-    z_coords = [oz + (gfov[k] if k < len(gfov) else k * spacing_z) for k in range(nk)]
-    axes[2].plot(z_coords, latz, color="#ff6b6b", lw=1.7)
-    axes[2].axvline(z_central, color="#ff5555", ls="--", alpha=0.85, lw=1.3,
-                    label=f"{refname} (Z={z_central:.1f} mm)")
+    latz_pct, latz_max = _to_pct(latz)
+    z_rel = [(oz + (gfov[k] if k < len(gfov) else k * spacing_z)) - z_central for k in range(nk)]
+    axes[2].plot(z_rel, latz_pct, color="#ff6b6b", lw=1.7)
+    axes[2].axvline(0, color="#ff5555", ls="--", alpha=0.85, lw=1.3,
+                    label=f"{refname} (Z)")
     axes[2].set_title(("Perfil lateral Z" if is_pt else "Lateral profile Z")
-                      + f"\n(profundidade Y={lateral_depth_y_mm:.1f} mm)",
+                      + f"\n({'profundidade Y' if is_pt else 'depth Y'}={lateral_depth_y_mm:.1f} mm)",
                       color=fg, fontsize=10)
-    axes[2].set_xlabel("Z DICOM (mm) — " + ("lateral" if is_pt else "lateral"), color=fg)
-    axes[2].set_ylabel("Dose (Gy)", color=fg)
-    axes[2].legend(loc="best", fontsize=8, framealpha=0.85, facecolor=bg,
-                   edgecolor=fg, labelcolor=fg)
-    _overlay_points(axes[2], "Z")
+    axes[2].set_xlabel(("Posicao em Z relativa ao " if is_pt else "Z position relative to ") + refname + " (mm)", color=fg)
+    axes[2].set_ylabel(("Dose relativa (%)" if is_pt else "Relative dose (%)"), color=fg)
+    axes[2].legend(loc="best", fontsize=8, framealpha=0.85, facecolor=bg, edgecolor=fg, labelcolor=fg)
+    _overlay_points(axes[2], "Z", latz_max)
 
     # Aviso de truncamento em Z: se as bordas nao chegam perto de 0.
     if latz.size > 4:
