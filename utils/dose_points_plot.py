@@ -161,21 +161,19 @@ def render_dose_profiles(dose_volume_gy, geometry, ref_point, points=None,
     refname = ref_point.get("name", "ref")
     rx, ry, rz = ref_point["x_mm"], ref_point["y_mm"], ref_point["z_mm"]
 
-    # ── Acha o EIXO CENTRAL do campo (X,Z de dose maxima) ───────────────────
-    # Usamos a posicao do voxel de dose maxima do volume como o eixo central.
-    kmax, imax, jmax = np.unravel_index(int(np.argmax(vol)), vol.shape)
-    # Coordenadas fisicas do eixo central
-    x_central = ox + jmax * col_sp
-    z_central = oz + (gfov[kmax] if kmax < len(gfov) else kmax * spacing_z)
+    # ── EIXO CENTRAL = o ponto de referencia escolhido pelo usuario (ex: R0) ─
+    # O PDD passa pelo (X,Z) do ponto de referencia; nao pelo pixel mais quente
+    # (que e sensivel a ruido e pode cair fora do centro real do campo).
+    x_central = rx
+    z_central = rz
+    j_cen = int(round((x_central - ox) / col_sp)); j_cen = max(0, min(j_cen, nj - 1))
+    k_cen = int(round((z_central - oz) / spacing_z)) if spacing_z else 0
+    k_cen = max(0, min(k_cen, nk - 1))
 
-    # Profundidade dos perfis laterais (Y): padrao = a do ref_point (DMAX)
+    # Profundidade dos perfis laterais (Y): padrao = a do ref_point
     if lateral_depth_y_mm is None:
         lateral_depth_y_mm = ry
     i_lat = int(round((lateral_depth_y_mm - oy) / row_sp)); i_lat = max(0, min(i_lat, ni - 1))
-
-    # indices do eixo central
-    j_cen = max(0, min(jmax, nj - 1))
-    k_cen = max(0, min(kmax, nk - 1))
 
     n_panels = 3
     fig, axes = plt.subplots(1, n_panels, figsize=(18, 5), dpi=dpi)
@@ -210,14 +208,15 @@ def render_dose_profiles(dose_volume_gy, geometry, ref_point, points=None,
                     ax.annotate(p["name"], (p["z_mm"], d), fontsize=6, color=fg,
                                 xytext=(4, 3), textcoords="offset points")
 
-    # ── 1) PDD: dose vs Y, no eixo central (j_cen, k_cen) ───────────────────
+    # ── 1) PDD: dose vs Y, no eixo central = (X,Z) do ponto de referencia ───
     pdd = vol[k_cen, :, j_cen]
     y_coords = [oy + i * row_sp for i in range(ni)]
     axes[0].plot(y_coords, pdd, color="#5fd35f", lw=1.7)
     axes[0].axvline(ry, color="#ff5555", ls="--", alpha=0.85, lw=1.3,
                     label=f"{refname} (Y={ry:.1f} mm)")
     axes[0].set_title(("PDD — dose × profundidade" if is_pt else "PDD — dose vs depth")
-                      + f"\n(eixo central X={x_central:.1f}, Z={z_central:.1f} mm)",
+                      + f"\n({'eixo central' if is_pt else 'central axis'} = {refname}: "
+                      + f"X={x_central:.1f}, Z={z_central:.1f} mm)",
                       color=fg, fontsize=10)
     axes[0].set_xlabel("Y DICOM (mm) — " + ("profundidade" if is_pt else "depth"), color=fg)
     axes[0].set_ylabel("Dose (Gy)", color=fg)
@@ -229,8 +228,8 @@ def render_dose_profiles(dose_volume_gy, geometry, ref_point, points=None,
     latx = vol[k_cen, i_lat, :]
     x_coords = [ox + j * col_sp for j in range(nj)]
     axes[1].plot(x_coords, latx, color="#4da3ff", lw=1.7)
-    axes[1].axvline(x_central, color="#ff5555", ls="--", alpha=0.6, lw=1.1,
-                    label=("eixo central" if is_pt else "central axis"))
+    axes[1].axvline(x_central, color="#ff5555", ls="--", alpha=0.85, lw=1.3,
+                    label=f"{refname} (X={x_central:.1f} mm)")
     axes[1].set_title(("Perfil lateral X" if is_pt else "Lateral profile X")
                       + f"\n(profundidade Y={lateral_depth_y_mm:.1f} mm)",
                       color=fg, fontsize=10)
@@ -244,8 +243,8 @@ def render_dose_profiles(dose_volume_gy, geometry, ref_point, points=None,
     latz = vol[:, i_lat, j_cen]
     z_coords = [oz + (gfov[k] if k < len(gfov) else k * spacing_z) for k in range(nk)]
     axes[2].plot(z_coords, latz, color="#ff6b6b", lw=1.7)
-    axes[2].axvline(z_central, color="#ff5555", ls="--", alpha=0.6, lw=1.1,
-                    label=("eixo central" if is_pt else "central axis"))
+    axes[2].axvline(z_central, color="#ff5555", ls="--", alpha=0.85, lw=1.3,
+                    label=f"{refname} (Z={z_central:.1f} mm)")
     axes[2].set_title(("Perfil lateral Z" if is_pt else "Lateral profile Z")
                       + f"\n(profundidade Y={lateral_depth_y_mm:.1f} mm)",
                       color=fg, fontsize=10)
