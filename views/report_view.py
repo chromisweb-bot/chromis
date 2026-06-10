@@ -26,6 +26,7 @@ def report_view(state, go):
     # Mapa de modulos disponiveis para o relatorio (os que geram secao)
     reportable = {
         "setup": t("mod_setup"),
+        "tps": t("mod_tps"),
         "upload": t("mod_upload"),
         "calibration": t("mod_calibration"),
         "dosemap": t("mod_dosemap"),

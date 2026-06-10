@@ -371,6 +371,10 @@ STRINGS = {
     "tps_iso_label_pct":  {"pt": "Escrever % sobre as isodoses", "en": "Write % on isodose curves"},
     "tps_saved_ok":       {"pt": "Planejamento do TPS salvo no estudo (aparecera no relatorio).",
                            "en": "TPS plan saved to the study (will appear in the report)."},
+    "tps_already_saved":  {"pt": "Ja existe um Planejamento do TPS salvo neste estudo ({n} pontos). Aparecera no relatorio.",
+                           "en": "A TPS plan is already saved in this study ({n} points). It will appear in the report."},
+    "tps_reupload_hint":  {"pt": "Para editar ou rever, anexe os arquivos novamente abaixo.",
+                           "en": "To edit or review, attach the files again below."},
 
 }
 

@@ -33,6 +33,14 @@ def tps_view(state, go):
         accept_multiple_files=True, key="tps_files",
     )
     if not files:
+        # Se ja existe um TPS salvo no estudo, avisa (os arquivos do uploader
+        # somem ao navegar, mas os dados salvos PERSISTEM no relatorio).
+        from utils.study_store import get_module
+        saved = get_module(state, "tps")
+        if saved is not None:
+            np_saved = len(saved.get("points", []) or [])
+            st.success(t("tps_already_saved").format(n=np_saved))
+            st.caption(t("tps_reupload_hint"))
         st.markdown(f"<div style='background:{COLORS['bg_surface']};border-radius:8px;"
                     f"padding:32px;text-align:center;color:{COLORS['text_muted']};font-size:12px'>"
                     f"{t('tps_waiting')}</div>", unsafe_allow_html=True)
