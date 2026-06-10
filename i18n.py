@@ -369,6 +369,8 @@ STRINGS = {
                               "en": "Lateral X and Z profiles are taken at this depth. Default: the reference point (DMAX) depth."},
     "tps_colormap":       {"pt": "Paleta de cores", "en": "Color palette"},
     "tps_iso_label_pct":  {"pt": "Escrever % sobre as isodoses", "en": "Write % on isodose curves"},
+    "tps_saved_ok":       {"pt": "Planejamento do TPS salvo no estudo (aparecera no relatorio).",
+                           "en": "TPS plan saved to the study (will appear in the report)."},
 
 }
 

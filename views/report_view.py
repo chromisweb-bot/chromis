@@ -123,14 +123,15 @@ def report_view(state, go):
                                f"Usando a versao salva.")
 
             try:
+                tps_data = study.get("tps") or {}
                 pdf_bytes = generate_report(study, lang=report_lang,
                                             selected_modules=selected_modules,
                                             logo_path=logo_path,
                                             films_image=gallery_for_report or state.get("films_overview_png"),
                                             curve_image=curve_for_report,
                                             dosemap_image=state.get("dosemap_png"),
-                                            tps_map_image=state.get("tps_map_image"),
-                                            tps_profiles_image=state.get("tps_profiles_image"))
+                                            tps_map_image=tps_data.get("map_image") or state.get("tps_map_image"),
+                                            tps_profiles_image=tps_data.get("profiles_image") or state.get("tps_profiles_image"))
             except Exception as e:
                 st.error(f"Erro ao gerar o PDF: {e}")
                 return

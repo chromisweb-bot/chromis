@@ -124,7 +124,7 @@ def tps_view(state, go):
         _render_points_analysis(state, tp, np, vol_dist, enriched)
         central_name = state.get("tps_central_point")
 
-    # ── 5) Resumo geral e continuar ─────────────────────────────────────────
+    # ── 5) Resumo geral, salvar e continuar ─────────────────────────────────
     n_dose = len(dose_dists)
     st.markdown(f"**{t('tps_summary')}:** {n_dose} {t('tps_dose_maps')}, "
                 f"{len(contours)} {t('tps_isodoses')}, {len(points)} {t('tps_pointsets')}")
@@ -135,21 +135,41 @@ def tps_view(state, go):
         chosen = st.selectbox(t("tps_choose_main"), labels, key="tps_main_dose")
         chosen_idx = labels.index(chosen)
 
-    c1, c2 = st.columns([4, 1])
+    can_save = (n_dose > 0 or bool(contours) or bool(points))
+
+    # Mostra se ja foi salvo nesta sessao
+    from utils.study_store import get_module
+    if get_module(state, "tps") is not None:
+        st.success(t("tps_saved_ok"))
+
+    c1, c2, c3 = st.columns([3, 1, 1])
     with c2:
+        if st.button(t("save"), use_container_width=True, disabled=not can_save,
+                     key="tps_save_btn"):
+            _persist_tps(state, dose_dists, contours, points, chosen_idx, enriched,
+                         state.get("tps_central_point"))
+            st.success(t("tps_saved_ok"))
+            st.rerun()
+    with c3:
         if st.button(t("continue"), use_container_width=True, type="primary",
-                     disabled=(n_dose == 0 and not contours and not points)):
-            if n_dose > 0:
-                nm, dist = dose_dists[chosen_idx]
-                state["tps_dose_cgy"] = (dist.dose * 100.0)
-                state["tps_dose_res_mm"] = dist.resolution_mm
-                state["tps_dose_name"] = nm
-                state["tps_dose_meta"] = dist.metadata
-            state["done"]["tps"] = True
-            _save_tps(state, dose_dists, contours, points, chosen_idx, enriched, central_name)
+                     disabled=not can_save, key="tps_continue_btn"):
+            _persist_tps(state, dose_dists, contours, points, chosen_idx, enriched,
+                         state.get("tps_central_point"))
             notify_user_activity(state.get("user", "?"), "TPS importado",
                                  f"{n_dose} mapa(s), {len(enriched)} ponto(s)")
             go("dashboard")
+
+
+def _persist_tps(state, dose_dists, contours, points, chosen_idx, enriched, central_name):
+    """Salva os dados E garante o estado do modulo (dose principal + flag done)."""
+    if dose_dists:
+        nm, dist = dose_dists[chosen_idx]
+        state["tps_dose_cgy"] = (dist.dose * 100.0)
+        state["tps_dose_res_mm"] = dist.resolution_mm
+        state["tps_dose_name"] = nm
+        state["tps_dose_meta"] = dist.metadata
+    state.setdefault("done", {})["tps"] = True
+    _save_tps(state, dose_dists, contours, points, chosen_idx, enriched, central_name)
 
 
 def _render_points_analysis(state, tp, np, vol_dist, enriched):
@@ -319,27 +339,29 @@ def _render_points_analysis(state, tp, np, vol_dist, enriched):
 
 
 def _save_tps(state, dose_dists, contours, points, chosen_idx, enriched, central):
-    try:
-        import sys, os
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-        from utils.study_store import save_module
-        main = None
-        if dose_dists:
-            nm, dist = dose_dists[chosen_idx]
-            s = dist.summary()
-            main = {"name": nm, "shape": list(s["shape"]),
-                    "resolution_mm": s["resolution_mm"], "max_dose_cgy": s["max_dose_cgy"]}
-        pts_summary = []
-        for q in enriched:
-            if q.get("tps_dose_gy") is not None:
-                pts_summary.append({"name": q["name"],
-                                    "x_mm": q.get("x_mm"), "y_mm": q.get("y_mm"),
-                                    "z_mm": q.get("z_mm"),
-                                    "tps_dose_cgy": q["tps_dose_gy"] * 100})
-        save_module(state, "tps", {
-            "n_dose_maps": len(dose_dists), "n_isodoses": len(contours),
-            "n_pointsets": len(points), "main_dose": main,
-            "points": pts_summary, "central_point": central,
-        })
-    except Exception:
-        pass
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    from utils.study_store import save_module
+    main = None
+    if dose_dists:
+        nm, dist = dose_dists[chosen_idx]
+        s = dist.summary()
+        main = {"name": nm, "shape": list(s["shape"]),
+                "resolution_mm": s["resolution_mm"], "max_dose_cgy": s["max_dose_cgy"]}
+    pts_summary = []
+    for q in enriched:
+        if q.get("tps_dose_gy") is not None:
+            pts_summary.append({"name": q["name"],
+                                "x_mm": q.get("x_mm"), "y_mm": q.get("y_mm"),
+                                "z_mm": q.get("z_mm"),
+                                "tps_dose_cgy": q["tps_dose_gy"] * 100})
+    # As imagens sao guardadas DENTRO do estudo (nao em state solto), para
+    # persistirem e aparecerem no relatorio mesmo apos navegar entre telas.
+    data = {
+        "n_dose_maps": len(dose_dists), "n_isodoses": len(contours),
+        "n_pointsets": len(points), "main_dose": main,
+        "points": pts_summary, "central_point": central,
+        "map_image": state.get("tps_map_image"),
+        "profiles_image": state.get("tps_profiles_image"),
+    }
+    save_module(state, "tps", data)
