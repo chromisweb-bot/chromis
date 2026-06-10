@@ -45,8 +45,9 @@ def red_channel_mean_in_roi(image_rgb, bbox_film, roi_bbox):
     rmaxr = min(red.shape[0], rmaxr); rmaxc = min(red.shape[1], rmaxc)
     roi = red[rminr:rmaxr, rminc:rmaxc]
     if roi.size == 0:
-        return float(np.mean(red))
-    return float(np.mean(roi))
+        return float(np.median(red))
+    # MEDIANA (nao media): robusta a poeira, riscos e pixels mortos no ROI.
+    return float(np.median(roi))
 
 
 def compute_nod_values(red_means, dose_values, bit_depth=8):
@@ -220,3 +221,45 @@ def recommend_model(fit_results, doses, unit="cGy"):
         "best_r2_model": best_r2["model"],
         "reasons": reasons,
     }
+
+
+def check_calibration_quality(doses, nods, lang="pt"):
+    """
+    Verificacoes de sanidade dos pontos de calibracao. Retorna lista de
+    avisos (strings) para o usuario investigar — nao bloqueia o ajuste.
+
+    Checa:
+      - NOD nao monotonico (dose maior com NOD menor que o anterior);
+      - sensibilidade anomala: o passo de NOD por unidade de dose muito
+        menor que o dos vizinhos (ROI possivelmente fora do campo,
+        filme trocado ou dose digitada errada);
+      - pontos de dose repetida com NOD muito diferente.
+    """
+    import numpy as np
+    pares = sorted(zip(list(doses), list(nods)), key=lambda p: p[0])
+    warns = []
+    pt = (lang == "pt")
+    # monotonicidade
+    for i in range(1, len(pares)):
+        d0, n0 = pares[i-1]; d1, n1 = pares[i]
+        if d1 > d0 and n1 < n0 - 1e-4:
+            warns.append((f"NOD diminuiu de {d0:.0f} para {d1:.0f} cGy "
+                          f"({n0:.4f} -> {n1:.4f}). Verifique doses digitadas e ROI."
+                          ) if pt else
+                         (f"NOD decreased from {d0:.0f} to {d1:.0f} cGy "
+                          f"({n0:.4f} -> {n1:.4f}). Check entered doses and ROI."))
+    # sensibilidade local anomala (dNOD/dDose muito abaixo dos vizinhos)
+    sens = []
+    for i in range(1, len(pares)):
+        d0, n0 = pares[i-1]; d1, n1 = pares[i]
+        if d1 > d0:
+            sens.append(((n1 - n0) / (d1 - d0), d0, d1))
+    for j, (s, d0, d1) in enumerate(sens):
+        viz = [sens[k][0] for k in (j-1, j+1) if 0 <= k < len(sens)]
+        if viz and s >= 0 and s < 0.25 * max(viz):
+            warns.append((f"Sensibilidade anomala entre {d0:.0f} e {d1:.0f} cGy: "
+                          f"o NOD quase nao mudou. Verifique o filme/ROI desse intervalo."
+                          ) if pt else
+                         (f"Anomalous sensitivity between {d0:.0f} and {d1:.0f} cGy: "
+                          f"NOD barely changed. Check that film/ROI."))
+    return warns

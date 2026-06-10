@@ -14,84 +14,94 @@ from skimage import filters, measure, morphology
 
 
 def analyze_film_field(film_gray: np.ndarray, mask: np.ndarray = None,
-                       uniformity_tol: float = 0.12):
+                       uniformity_tol: float = None):
     """
-    Analisa um recorte de filme (em cinza) para detectar o campo irradiado.
+    Analisa um recorte de filme (cinza 0..1) e detecta o campo irradiado.
 
-    Args:
-        film_gray: recorte 2D do filme (escala de cinza, 0..1).
-        mask: mascara booleana do filme (mesmo shape). Se None, usa tudo.
-        uniformity_tol: tolerancia de uniformidade. Se a diferenca entre
-                        centro e borda for menor que isso, considera
-                        campo = filme.
+    v2 — criterio ADAPTATIVO (corrige a versao antiga, que so detectava campo
+    menor em filmes de dose alta):
+      1. Otsu DENTRO do filme separa a regiao escura (campo) da clara (borda
+         nao irradiada).
+      2. A separacao entre as classes precisa superar o ruido interno
+         (>= 1.5x o desvio-padrao medio das classes) e um minimo absoluto
+         pequeno (0.02) — em vez do antigo limiar fixo de 0.12 que so
+         filmes muito escuros atingiam.
+      3. Validacao GEOMETRICA: a regiao clara deve tocar a borda do filme
+         (e uma moldura/faixa externa) e o campo deve ter area razoavel
+         (15%..97% do filme). Evita falsos positivos por ruido/poeira.
 
     Returns:
-        dict com:
-          "field_type": "full" (campo=filme) ou "smaller" (campo<filme)
-          "field_bbox": bbox do campo dentro do recorte (ou None se full)
-          "center_intensity", "border_intensity"
+        dict com field_type ("full"|"smaller"), field_bbox, center_intensity,
+        border_intensity, diff.
     """
     if mask is None:
         mask = np.ones_like(film_gray, dtype=bool)
 
     h, w = film_gray.shape
+    vals = film_gray[mask]
+    if vals.size < 100:
+        return {"field_type": "full", "field_bbox": None,
+                "center_intensity": float(vals.mean()) if vals.size else 0.0,
+                "border_intensity": 0.0, "diff": 0.0}
 
-    # Define uma faixa de borda (15% externo) e uma regiao central (40% central)
-    by = max(1, int(h * 0.15))
-    bx = max(1, int(w * 0.15))
+    # 1) Otsu interno ao filme
+    try:
+        thr = filters.threshold_otsu(vals)
+    except Exception:
+        thr = float(np.median(vals))
+    dark = (film_gray < thr) & mask     # candidato a campo
+    light = (film_gray >= thr) & mask   # candidato a borda nao irradiada
 
-    # Borda: moldura externa
-    border_mask = np.zeros_like(mask)
-    border_mask[:by, :] = True
-    border_mask[-by:, :] = True
-    border_mask[:, :bx] = True
-    border_mask[:, -bx:] = True
-    border_mask &= mask
+    d_vals = film_gray[dark]
+    l_vals = film_gray[light]
+    if d_vals.size < 50 or l_vals.size < 50:
+        return {"field_type": "full", "field_bbox": None,
+                "center_intensity": float(vals.mean()),
+                "border_intensity": float(vals.mean()), "diff": 0.0}
 
-    # Centro: regiao central
-    cy0, cy1 = int(h * 0.3), int(h * 0.7)
-    cx0, cx1 = int(w * 0.3), int(w * 0.7)
-    center_mask = np.zeros_like(mask)
-    center_mask[cy0:cy1, cx0:cx1] = True
-    center_mask &= mask
+    d_mean, l_mean = float(d_vals.mean()), float(l_vals.mean())
+    sep = l_mean - d_mean
+    noise = 0.5 * (float(d_vals.std()) + float(l_vals.std()))
 
-    center_int = float(np.mean(film_gray[center_mask])) if center_mask.any() else 0.0
-    border_int = float(np.mean(film_gray[border_mask])) if border_mask.any() else 0.0
+    # 2) Separacao significativa? (adaptativa ao ruido; minimo absoluto baixo)
+    min_sep = max(0.02, 1.5 * noise)
+    if uniformity_tol is not None:           # compatibilidade com chamadas antigas
+        min_sep = max(min_sep, 0.0)          # uniformity_tol legado ignorado
+    if sep < min_sep:
+        return {"field_type": "full", "field_bbox": None,
+                "center_intensity": d_mean, "border_intensity": l_mean,
+                "diff": sep}
 
-    # Se centro e borda tem intensidade parecida -> campo cobre o filme todo
-    diff = abs(center_int - border_int)
-    if diff < uniformity_tol:
-        return {
-            "field_type": "full",
-            "field_bbox": None,
-            "center_intensity": center_int,
-            "border_intensity": border_int,
-            "diff": diff,
-        }
-
-    # Campo menor: segmenta a regiao central mais escura
-    # (centro irradiado e mais escuro = menor cinza que a borda)
-    thr = (center_int + border_int) / 2.0
-    field_bin = (film_gray < thr) & mask
-    field_bin = morphology.remove_small_objects(field_bin, min_size=int(h * w * 0.02))
+    # 3) Geometria: limpa o campo e valida proporcoes/posicao
+    field_bin = morphology.remove_small_objects(dark, min_size=int(h * w * 0.02))
     field_bin = morphology.binary_closing(field_bin, morphology.disk(2))
+    if not field_bin.any():
+        return {"field_type": "full", "field_bbox": None,
+                "center_intensity": d_mean, "border_intensity": l_mean,
+                "diff": sep}
 
-    if field_bin.any():
-        labels = measure.label(field_bin)
-        regions = measure.regionprops(labels)
-        # maior regiao = campo
-        largest = max(regions, key=lambda r: r.area)
-        fb = largest.bbox  # (minr,minc,maxr,maxc)
-    else:
-        fb = None
+    labels = measure.label(field_bin)
+    largest = max(measure.regionprops(labels), key=lambda r: r.area)
+    field_mask = labels == largest.label
+    area_frac = field_mask.sum() / float(mask.sum())
 
-    return {
-        "field_type": "smaller",
-        "field_bbox": fb,
-        "center_intensity": center_int,
-        "border_intensity": border_int,
-        "diff": diff,
-    }
+    # a regiao clara precisa existir de verdade na PERIFERIA do filme:
+    edge_band = np.zeros_like(mask)
+    b = max(2, int(min(h, w) * 0.06))
+    edge_band[:b, :] = True; edge_band[-b:, :] = True
+    edge_band[:, :b] = True; edge_band[:, -b:] = True
+    edge_band &= mask
+    light_on_edge = float((light & edge_band).sum()) / max(1, int(edge_band.sum()))
+
+    if area_frac < 0.15 or area_frac > 0.97 or light_on_edge < 0.10:
+        return {"field_type": "full", "field_bbox": None,
+                "center_intensity": d_mean, "border_intensity": l_mean,
+                "diff": sep}
+
+    fb = largest.bbox  # (minr,minc,maxr,maxc)
+    return {"field_type": "smaller", "field_bbox": fb,
+            "center_intensity": d_mean, "border_intensity": l_mean,
+            "diff": sep}
 
 
 def compute_roi(film_shape, field_bbox=None, edge_recoil_mm=3.0,

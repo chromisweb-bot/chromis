@@ -375,6 +375,16 @@ STRINGS = {
                            "en": "A TPS plan is already saved in this study ({n} points). It will appear in the report."},
     "tps_reupload_hint":  {"pt": "Para editar ou rever, anexe os arquivos novamente abaixo.",
                            "en": "To edit or review, attach the files again below."},
+    "dm_rotate":          {"pt": "Girar o filme", "en": "Rotate film"},
+    "dm_rotate_hint":     {"pt": "Util quando o filme foi escaneado deitado/girado. Gira a imagem em passos de 90 graus para melhor visualizacao (nao altera as doses).",
+                           "en": "Useful when the film was scanned rotated. Rotates the image in 90-degree steps for better viewing (does not change doses)."},
+    "dm_bg_film_pv0":     {"pt": "PV0 estimado da regiao mais clara (nao irradiada) do filme: {pv}",
+                           "en": "PV0 estimated from the lightest (unirradiated) region of the film: {pv}"},
+    "dm_val_mode":        {"pt": "Tipo do campo para a validacao", "en": "Field type for validation"},
+    "dm_val_uniform":     {"pt": "Campo uniforme (plato, P95)", "en": "Uniform field (plateau, P95)"},
+    "dm_val_gradient":    {"pt": "Campo com gradiente / PDD (pico, P99)", "en": "Gradient field / PDD (peak, P99)"},
+    "dm_val_mode_hint":   {"pt": "Campo uniforme: a dose nominal corresponde ao plato (mede-se a mediana do top 5%). Campo com gradiente (ex.: filme em pe/deitado com PDD): a dose nominal e a do PICO (mede-se a mediana do top 1%).",
+                           "en": "Uniform field: nominal dose corresponds to the plateau (median of top 5%). Gradient field (e.g., PDD film): nominal dose is the PEAK (median of top 1%)."},
 
 }
 

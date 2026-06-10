@@ -128,6 +128,11 @@ def dosemap_view(state, go):
         index=0, key="dm_cmap",
     )
 
+    # Rotacao do filme (ex.: filme irradiado deitado -> girar p/ visualizar)
+    rot_choice = st.selectbox(t("dm_rotate"), ["0°", "90°", "180°", "270°"],
+                              index=0, key="dm_rotate",
+                              help=t("dm_rotate_hint"))
+
     # Fonte do background (PV0). Ordem por robustez na pratica real:
     #  1) regiao nao irradiada do proprio filme = mesmo scan/tempo (mais robusto)
     #  2) upload de background separado = so funciona se mesmo lote E mesmo scan
@@ -159,6 +164,11 @@ def dosemap_view(state, go):
         minr, minc, maxr, maxc = film["bbox"]
         crop = measure_img[minr:maxr, minc:maxc]
 
+        # Rotacao escolhida pelo usuario (90 graus anti-horario por passo)
+        rot_k = {"0°": 0, "90°": 1, "180°": 2, "270°": 3}.get(rot_choice, 0)
+        if rot_k:
+            crop = np.rot90(crop, k=rot_k, axes=(0, 1))
+
         pv_zero_use = pv_zero
         if use_bg_upload and bg_img is not None:
             # PV0 = mediana da REGIAO CENTRAL do filme de background (evita bordas).
@@ -178,13 +188,19 @@ def dosemap_view(state, go):
             except Exception:
                 pv_zero_use = float(np.median(_red_channel(bg_img)))
         elif use_film_bg:
-            # Estimar PV0 dos cantos do filme (regioes tipicamente nao irradiadas).
+            # PV0 = regiao NAO IRRADIADA do proprio filme. v3 (moda robusta):
+            # o conjunto de pixels nao irradiados forma um CLUSTER claro no
+            # histograma; o PICO desse cluster e o PV0 verdadeiro (insensivel
+            # a caudas de ruido e a posicao do campo — funciona com o filme
+            # deitado, campo cruzando cantos etc.). Refina com a mediana dos
+            # pixels a ±2% do pico.
             red = _red_channel(crop)
-            h, w = red.shape
-            cs = max(4, int(min(h, w) * 0.12))
-            corners = [red[:cs, :cs], red[:cs, -cs:], red[-cs:, :cs], red[-cs:, -cs:]]
-            corner_meds = [float(np.median(c)) for c in corners]
-            pv_zero_use = max(corner_meds)
+            sel = red[red >= np.percentile(red, 80)]
+            hist, edges = np.histogram(sel, bins=256)
+            pico = float(0.5 * (edges[np.argmax(hist)] + edges[np.argmax(hist) + 1]))
+            viz = red[(red >= pico * 0.98) & (red <= pico * 1.02)]
+            pv_zero_use = float(np.median(viz)) if viz.size else pico
+            st.caption(t("dm_bg_film_pv0").format(pv=f"{pv_zero_use:.0f}"))
 
         result = compute_dose_map(crop, pv_zero_use, model_obj,
                                   normalize="max" if is_percent else None)
@@ -216,15 +232,20 @@ def dosemap_view(state, go):
         import numpy as np
         from scipy.ndimage import median_filter
         dm_abs = result["dose_map"]
-        # Medir no PLATO do campo irradiado (regiao de dose plena).
+        # Tipo do campo para a validacao:
+        #  - UNIFORME: ha um plato de dose plena -> mediana do top 5% (P95).
+        #  - GRADIENTE/PDD (ex.: filme deitado atravessado pelo feixe): nao ha
+        #    plato; a dose nominal refere-se ao PICO -> mediana do top 1% (P99).
+        val_mode = st.radio(t("dm_val_mode"),
+                            [t("dm_val_uniform"), t("dm_val_gradient")],
+                            horizontal=True, key="dm_val_mode",
+                            help=t("dm_val_mode_hint"))
+        top_pct = 95 if val_mode == t("dm_val_uniform") else 99
         # Boas praticas (literatura): medir em AREA, nao pixel; suavizar ruido.
-        # 1) suavizar o mapa com mediana (reduz ruido de scanner)
         dm_smooth = median_filter(dm_abs, size=5)
-        # 2) identificar o plato: pixels >= percentil 95 (regiao de dose plena)
         valid = dm_smooth[np.isfinite(dm_smooth)]
         if valid.size:
-            thr = np.nanpercentile(dm_smooth, 95)
-            # 3) tomar a regiao de dose plena e medir a MEDIANA (robusta a outliers)
+            thr = np.nanpercentile(dm_smooth, top_pct)
             plateau = dm_smooth[dm_smooth >= thr]
             measured = float(np.nanmedian(plateau)) if plateau.size else float(np.nanmedian(dm_smooth))
         else:

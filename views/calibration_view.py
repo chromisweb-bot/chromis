@@ -52,6 +52,15 @@ def calibration_view(state, go):
             st.info("Background recebido. (Integracao do background avulso na proxima etapa.)")
         return
 
+    # ===== Verificacao de qualidade dos pontos (sanidade) =====
+    try:
+        from utils.calibration_engine import check_calibration_quality
+        qc_warns = check_calibration_quality(dose_list, nods, lang=get_lang())
+        for wmsg in qc_warns:
+            st.warning(f"⚠ {wmsg}")
+    except Exception:
+        pass
+
     # ===== Ajustar todos os modelos =====
     with st.spinner("Ajustando modelos..."):
         results = fit_all_models(nods, dose_list)
