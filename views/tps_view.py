@@ -33,17 +33,22 @@ def tps_view(state, go):
         accept_multiple_files=True, key="tps_files",
     )
     if not files:
-        # Se ja existe um TPS salvo no estudo, avisa (os arquivos do uploader
-        # somem ao navegar, mas os dados salvos PERSISTEM no relatorio).
+        # Se ja existe um TPS salvo, RE-EXIBE o conteudo (tabela + imagens),
+        # para o usuario rever o que fez sem precisar reanexar os arquivos.
         from utils.study_store import get_module
         saved = get_module(state, "tps")
         if saved is not None:
-            np_saved = len(saved.get("points", []) or [])
-            st.success(t("tps_already_saved").format(n=np_saved))
+            _render_saved_tps(state, saved)
+            st.markdown(f"<hr style='border:none;border-top:0.5px solid {COLORS['border_soft']};margin:16px 0'>",
+                        unsafe_allow_html=True)
             st.caption(t("tps_reupload_hint"))
-        st.markdown(f"<div style='background:{COLORS['bg_surface']};border-radius:8px;"
-                    f"padding:32px;text-align:center;color:{COLORS['text_muted']};font-size:12px'>"
-                    f"{t('tps_waiting')}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='background:{COLORS['bg_surface']};border-radius:8px;"
+                        f"padding:20px;text-align:center;color:{COLORS['text_muted']};font-size:12px'>"
+                        f"{t('tps_waiting')}</div>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div style='background:{COLORS['bg_surface']};border-radius:8px;"
+                        f"padding:32px;text-align:center;color:{COLORS['text_muted']};font-size:12px'>"
+                        f"{t('tps_waiting')}</div>", unsafe_allow_html=True)
         return
 
     dose_dists, contours, points = [], [], []
@@ -166,6 +171,56 @@ def tps_view(state, go):
             notify_user_activity(state.get("user", "?"), "TPS importado",
                                  f"{n_dose} mapa(s), {len(enriched)} ponto(s)")
             go("dashboard")
+
+
+def _render_saved_tps(state, saved):
+    """Re-exibe o conteudo do TPS ja salvo no estudo (sem reanexar arquivos)."""
+    import pandas as pd
+    np_saved = len(saved.get("points", []) or [])
+    st.success(t("tps_already_saved").format(n=np_saved))
+
+    # Resumo
+    md = saved.get("main_dose") or {}
+    cols = st.columns(3)
+    cols[0].metric(t("tps_r_npoints") if False else t("tps_pt_name") + "s", str(np_saved))
+    if saved.get("central_point"):
+        cols[1].metric(t("tps_central_select"), saved["central_point"])
+    if md.get("max_dose_cgy") is not None:
+        cols[2].metric(t("tps_maxdose"), f"{md['max_dose_cgy']:.0f} cGy")
+
+    # Tabela de pontos salvos
+    pts = saved.get("points", []) or []
+    if pts:
+        doses = [p.get("tps_dose_cgy") for p in pts if p.get("tps_dose_cgy") is not None]
+        dmax_v = max(doses) if doses else None
+        dmin_v = min(doses) if doses else None
+        rows = []
+        for p in pts:
+            d = p.get("tps_dose_cgy")
+            flag = ""
+            if d is not None and dmax_v is not None and abs(d - dmax_v) < 1e-6:
+                flag = "▲ max"
+            elif d is not None and dmin_v is not None and abs(d - dmin_v) < 1e-6:
+                flag = "▼ min"
+            if p.get("name") == saved.get("central_point"):
+                flag = (flag + " ◎").strip()
+            rows.append({
+                t("tps_pt_name"): p.get("name", "?"),
+                "X (mm)": round(p["x_mm"], 1) if p.get("x_mm") is not None else "-",
+                "Y (mm)": round(p["y_mm"], 1) if p.get("y_mm") is not None else "-",
+                "Z (mm)": round(p["z_mm"], 1) if p.get("z_mm") is not None else "-",
+                t("tps_pt_tpsdose"): f"{d:.1f}" if d is not None else "-",
+                "": flag,
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    # Imagens salvas
+    if saved.get("map_image"):
+        st.markdown(f"**{t('tps_map_with_points')}**")
+        st.image(saved["map_image"], use_container_width=True)
+    if saved.get("profiles_image"):
+        st.markdown(f"**{t('tps_profiles')}**")
+        st.image(saved["profiles_image"], use_container_width=True)
 
 
 def _persist_tps(state, dose_dists, contours, points, chosen_idx, enriched, central_name):
