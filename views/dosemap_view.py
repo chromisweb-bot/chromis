@@ -342,14 +342,55 @@ def dosemap_view(state, go):
             except Exception:
                 pass
         else:
-            top_pct = 95 if val_mode == t("dm_val_uniform") else 99
-            valid = dm_smooth[np.isfinite(dm_smooth)]
-            if valid.size:
-                thr = np.nanpercentile(dm_smooth, top_pct)
-                plateau = dm_smooth[dm_smooth >= thr]
-                measured = float(np.nanmedian(plateau)) if plateau.size else float(np.nanmedian(dm_smooth))
+            hh, ww = dm_smooth.shape
+            if val_mode == t("dm_val_uniform"):
+                # Plato (campo uniforme): mediana do top 5%.
+                thr = np.nanpercentile(dm_smooth, 95)
+                region_mask = dm_smooth >= thr
+                measured = float(np.nanmedian(dm_smooth[region_mask])) \
+                    if region_mask.any() else float(np.nanmedian(dm_smooth))
             else:
-                measured = 0.0
+                # PDD: pico no EIXO CENTRAL do campo (como o fisico mede).
+                # Percentil global pega hot spots e os 'horns' do perfil
+                # lateral; o eixo central compara com a dose nominal correta.
+                field = dm_smooth >= 0.5 * np.nanpercentile(dm_smooth, 99.5)
+                wsum = field.sum(axis=0).astype(float)
+                if wsum.sum() > 0:
+                    center_col = int(round(np.average(np.arange(ww), weights=wsum + 1e-9)))
+                else:
+                    center_col = ww // 2
+                half_band = max(3, int(round(2.0 * dpi_scan / 25.4)))  # ±2 mm
+                c0b = max(0, center_col - half_band)
+                c1b = min(ww, center_col + half_band + 1)
+                band = dm_smooth[:, c0b:c1b]
+                profile = np.nanmedian(band, axis=1)
+                profile = median_filter(profile, size=9)
+                ipk = int(np.nanargmax(profile))
+                measured = float(profile[ipk])
+                region_mask = np.zeros_like(dm_smooth, dtype=bool)
+                region_mask[:, c0b:c1b] = True
+            # Overlay diagnostico: VER exatamente o que foi medido.
+            try:
+                import matplotlib
+                matplotlib.use("Agg")
+                import matplotlib.pyplot as plt
+                import io as _io
+                figd, axd = plt.subplots(figsize=(4.6, 3.6), dpi=100)
+                axd.imshow(dm_smooth, cmap=dm_cmap)
+                ov = np.zeros((hh, ww, 4))
+                ov[region_mask] = [1, 1, 1, 0.35]   # branco translucido
+                axd.imshow(ov)
+                if val_mode != t("dm_val_uniform"):
+                    axd.axhline(ipk, color="white", lw=1.4, ls="--")
+                axd.set_xticks([]); axd.set_yticks([])
+                axd.set_title(t("dm_val_region_prev"), fontsize=9)
+                bufd = _io.BytesIO()
+                figd.savefig(bufd, format="png", bbox_inches="tight")
+                plt.close(figd)
+                with st.expander(t("dm_val_see_region"), expanded=False):
+                    st.image(bufd.getvalue(), width=420)
+            except Exception:
+                pass
         diff_pct = (measured - known_cgy) / known_cgy * 100.0 if known_cgy else 0.0
         st.markdown(f"**{t('dm_validation')}**")
         v1, v2, v3 = st.columns(3)
