@@ -433,9 +433,20 @@ def dosemap_view(state, go):
         else:
             hh, ww = dm_smooth.shape
             if val_mode == t("dm_val_uniform"):
-                # Plato (campo uniforme): mediana do top 5%.
-                thr = np.nanpercentile(dm_smooth, 95)
-                region_mask = dm_smooth >= thr
+                # Plato (campo uniforme): mediana do MIOLO do campo.
+                # O campo e detectado (>=50% do maximo robusto) e ERODIDO
+                # (~3 mm) para excluir a penumbra. Corrige o vies do antigo
+                # 'mediana do top 5%', que media a CAUDA DO RUIDO e
+                # superestimava a dose do plato em +0.5 a +3%.
+                from scipy.ndimage import binary_erosion
+                finite = np.isfinite(dm_smooth)
+                thr_f = 0.5 * np.nanpercentile(dm_smooth, 99.5)
+                field_m = finite & (dm_smooth >= thr_f)
+                er_px = max(3, int(round(3.0 * dpi_scan / 25.4)))   # ~3 mm
+                core_m = binary_erosion(field_m, iterations=er_px)
+                if core_m.sum() < 100:
+                    core_m = field_m
+                region_mask = core_m
                 measured = float(np.nanmedian(dm_smooth[region_mask])) \
                     if region_mask.any() else float(np.nanmedian(dm_smooth))
             else:
