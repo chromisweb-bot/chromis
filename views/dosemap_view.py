@@ -239,14 +239,32 @@ def dosemap_view(state, go):
 
             bg_sel = np.zeros_like(red, dtype=bool)
             if pvL is not None and pvR is not None:
-                # v4: PV0 POR COLUNA, interpolado entre as modas das duas
-                # laterais (correcao de 1a ordem do LRA do scanner — a
-                # observacao do usuario de que os dois lados diferem).
-                xL = float(np.median(np.where(selL.any(axis=0))[0]))
-                xR = float(ww0 // 2 + np.median(np.where(selR.any(axis=0))[0]))
+                # v4: PV0 POR COLUNA, interpolado entre as duas laterais
+                # (correcao de 1a ordem do LRA). REFINO v4.1: usa apenas o
+                # TERCO EXTERNO de cada lateral — o scatter (dose espalhada)
+                # decai com a distancia do campo, entao as colunas mais
+                # distantes tem PV0 menos contaminado.
+                selL_g = np.zeros_like(red, dtype=bool)
+                selL_g[:, :ww0 // 2] = selL
+                selR_g = np.zeros_like(red, dtype=bool)
+                selR_g[:, ww0 // 2:] = selR
+                colsL = np.where(selL_g.any(axis=0))[0]
+                colsR = np.where(selR_g.any(axis=0))[0]
+                if colsL.size >= 9 and colsR.size >= 9:
+                    nL3 = max(3, colsL.size // 3)
+                    nR3 = max(3, colsR.size // 3)
+                    cmL = np.zeros(ww0, dtype=bool); cmL[colsL[:nL3]] = True
+                    cmR = np.zeros(ww0, dtype=bool); cmR[colsR[-nR3:]] = True
+                    extL = selL_g & cmL[None, :]
+                    extR = selR_g & cmR[None, :]
+                    if extL.sum() >= 200 and extR.sum() >= 200:
+                        pvL = float(np.median(red[extL]))
+                        pvR = float(np.median(red[extR]))
+                        selL_g, selR_g = extL, extR
+                xL = float(np.median(np.where(selL_g.any(axis=0))[0]))
+                xR = float(np.median(np.where(selR_g.any(axis=0))[0]))
                 pv_zero_use = np.interp(np.arange(ww0), [xL, xR], [pvL, pvR])
-                bg_sel[:, :ww0 // 2] = selL
-                bg_sel[:, ww0 // 2:] = selR
+                bg_sel = selL_g | selR_g
                 st.caption(t("dm_bg_film_pv0_lr").format(
                     l=f"{pvL:.0f}", r=f"{pvR:.0f}"))
                 lra_pct = 100.0 * abs(pvL - pvR) / max(0.5 * (pvL + pvR), 1e-6)
