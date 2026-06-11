@@ -133,6 +133,12 @@ def dosemap_view(state, go):
                               index=0, key="dm_rotate",
                               help=t("dm_rotate_hint"))
 
+    # Margem de exclusao de borda: a borda cortada do filme tem sombra
+    # escura no scan que vira dose falsa ALTA e contamina maximo/P99
+    # (pratica padrao: Dosepy/OMG analisam dentro do filme).
+    margin_mm = st.slider(t("dm_edge_margin"), 0.0, 5.0, 3.0, 0.5,
+                          key="dm_edge_margin", help=t("dm_edge_margin_hint"))
+
     # Fonte do background (PV0). Ordem por robustez na pratica real:
     #  1) regiao nao irradiada do proprio filme = mesmo scan/tempo (mais robusto)
     #  2) upload de background separado = so funciona se mesmo lote E mesmo scan
@@ -242,8 +248,13 @@ def dosemap_view(state, go):
             except Exception:
                 pass
 
+        dpi_scan = int(state.get("upload_params", {}).get("dpi",
+                       state.get("setup_data", {}).get("dpi", 72)))
+        margin_px = max(2, int(round(margin_mm * dpi_scan / 25.4))) if margin_mm > 0 else 0
+
         result = compute_dose_map(crop, pv_zero_use, model_obj,
-                                  normalize="max" if is_percent else None)
+                                  normalize="max" if is_percent else None,
+                                  edge_margin_px=margin_px)
         if is_percent:
             png = render_dose_map_png(result["dose_map_pct"], unit, get_lang(),
                                       theme_val, percent=True, colormap=dm_cmap)
@@ -288,7 +299,14 @@ def dosemap_view(state, go):
             # Default: caixa centrada no PONTO DE DOSE MAXIMA do mapa
             # (regiao de dose plena), nao no centro geometrico.
             hh, ww = dm_smooth.shape
-            iy, ix = np.unravel_index(int(np.nanargmax(dm_smooth)), dm_smooth.shape)
+            # Default: caixa centrada no CENTROIDE da regiao top-1% (robusto;
+            # um argmax de pixel unico pode cair em artefato pontual).
+            try:
+                p99c = np.nanpercentile(dm_smooth, 99)
+                ys, xs = np.where(dm_smooth >= p99c)
+                iy, ix = int(np.median(ys)), int(np.median(xs))
+            except Exception:
+                iy, ix = hh // 2, ww // 2
             cx_pct = int(100 * ix / ww); cy_pct = int(100 * iy / hh)
             dx0 = max(0, cx_pct - 12); dx1 = min(100, cx_pct + 12)
             dy0 = max(0, cy_pct - 12); dy1 = min(100, cy_pct + 12)

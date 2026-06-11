@@ -28,7 +28,7 @@ def _red_channel(image):
 
 
 def compute_dose_map(film_image, pv_zero, model_obj, denoise=True,
-                     normalize=None):
+                     normalize=None, edge_margin_px=0):
     """
     Converte um recorte de filme irradiado em mapa de dose.
 
@@ -39,6 +39,11 @@ def compute_dose_map(film_image, pv_zero, model_obj, denoise=True,
         denoise: se True, aplica filtro de mediana leve para reduzir ruido.
         normalize: None = dose absoluta; "max" = % da dose maxima;
                    um numero = % em relacao a esse valor de referencia.
+        edge_margin_px: margem (px) EXCLUIDA nas 4 bordas do filme. A borda
+                   cortada do filme tem uma sombra escura no scan que vira
+                   "dose" falsa altissima e contamina maximo/percentis
+                   (pratica padrao: Dosepy/OMG analisam DENTRO do filme).
+                   Os pixels excluidos viram NaN no mapa.
 
     Returns:
         dict com dose_map (absoluta), netod_map, dose_min/max/mean,
@@ -65,12 +70,25 @@ def compute_dose_map(film_image, pv_zero, model_obj, denoise=True,
     dose_map = np.asarray(dose_flat, dtype=np.float64).reshape(netod.shape)
     dose_map = np.clip(dose_map, 0.0, None)
 
+    # Exclui a moldura das bordas (sombra de corte do filme) -> NaN
+    m = int(edge_margin_px)
+    if m > 0 and dose_map.shape[0] > 2 * m + 4 and dose_map.shape[1] > 2 * m + 4:
+        dose_map[:m, :] = np.nan
+        dose_map[-m:, :] = np.nan
+        dose_map[:, :m] = np.nan
+        dose_map[:, -m:] = np.nan
+        netod[:m, :] = np.nan
+        netod[-m:, :] = np.nan
+        netod[:, :m] = np.nan
+        netod[:, -m:] = np.nan
+
     result = {
         "dose_map": dose_map,
         "netod_map": netod,
         "dose_min": float(np.nanmin(dose_map)),
         "dose_max": float(np.nanmax(dose_map)),
         "dose_mean": float(np.nanmean(dose_map)),
+        "edge_margin_px": m,
     }
 
     # Mapa percentual
@@ -120,7 +138,11 @@ def render_dose_map_png(dose_map, unit="cGy", lang="pt", theme="dark",
     fig.patch.set_facecolor(bg)
     ax.set_facecolor(bg)
 
-    im = ax.imshow(dose_map, cmap=colormap, origin="upper")
+    import matplotlib.cm as _cm
+    cmap_obj = _cm.get_cmap(colormap).copy()
+    cmap_obj.set_bad(color=bg)   # NaN (margem de borda excluida) = fundo
+
+    im = ax.imshow(dose_map, cmap=cmap_obj, origin="upper")
     ax.set_title(title, color=fg, fontsize=12, fontweight="bold")
     ax.set_xticks([]); ax.set_yticks([])
 
