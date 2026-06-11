@@ -96,7 +96,7 @@ def fit_all_models(nods, doses):
     # Excluir o ponto de dose zero do ajuste? Nao — mantem (NOD=0, Dose=0).
     data = CalibrationData(nod=np.asarray(nods), dose=np.asarray(doses))
 
-    model_types = ["devic", "polynomial3", "power_law", "polynomial2", "log_linear"]
+    model_types = ["devic", "rational", "polynomial3", "power_law", "polynomial2", "log_linear"]
     results = []
     for mt in model_types:
         try:
@@ -125,10 +125,12 @@ MODEL_INFO = {
                     "para EBT3/EBT4 (n tipico entre 2.4 e 2.9)",
     },
     "rational": {
-        "nome": "Racional",
-        "formula": "Dose = c + b/(a - NOD)",
-        "vantagem": "forma racional do fabricante; util em alguns casos, mas sensivel "
-                    "ao ajuste com poucos pontos",
+        "nome": "Racional (fabricante Gafchromic)",
+        "formula": "Dose = c + b/(10^(-NOD) - a)",
+        "vantagem": "funcao recomendada na brochura oficial do EBT4 (Ashland): "
+                    "PV(D)=A+B/(D-C). Comportamento fisico correto na saturacao "
+                    "(a resposta tende a uma assintota em dose alta) e exige "
+                    "menos pontos de calibracao",
     },
     "power_law": {
         "nome": "Potencia",
@@ -263,3 +265,44 @@ def check_calibration_quality(doses, nods, lang="pt"):
                          (f"Anomalous sensitivity between {d0:.0f} and {d1:.0f} cGy: "
                           f"NOD barely changed. Check that film/ROI."))
     return warns
+
+
+def suggest_outlier(nods, doses):
+    """
+    Sugere o ponto mais destoante da calibracao (se houver um claro).
+
+    Ajusta a equacao de Devic a todos os pontos, calcula os residuos e
+    aponta o PIOR ponto se o residuo dele superar 2x o RMSE dos demais
+    (criterio conservador: so alerta quando ha um outlier evidente).
+
+    Returns:
+        None, ou dict {"index": i, "dose": d, "residual": r_cGy}.
+    """
+    import numpy as np
+    from scipy.optimize import curve_fit
+
+    nods = np.asarray(nods, float)
+    doses = np.asarray(doses, float)
+    if nods.size < 5:
+        return None
+
+    def devic(x, a, b, n):
+        xs = np.clip(x, 0.0, None)
+        return a * xs + b * np.power(xs, n)
+
+    try:
+        dmax = float(doses.max()); nmax = float(nods.max())
+        a0 = (dmax / nmax) if nmax > 1e-6 else 1000.0
+        p, _ = curve_fit(devic, nods, doses, p0=[a0 * 0.5, a0 * 0.5, 2.5],
+                         maxfev=20000)
+        res = devic(nods, *p) - doses
+    except Exception:
+        return None
+
+    worst = int(np.argmax(np.abs(res)))
+    others = np.delete(res, worst)
+    rmse_others = float(np.sqrt(np.mean(others ** 2))) if others.size else 0.0
+    if rmse_others > 0 and abs(res[worst]) > 2.0 * rmse_others:
+        return {"index": worst, "dose": float(doses[worst]),
+                "residual": float(res[worst])}
+    return None

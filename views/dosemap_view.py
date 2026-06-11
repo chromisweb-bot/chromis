@@ -141,6 +141,8 @@ def dosemap_view(state, go):
                        [t("dm_bg_film"), t("dm_bg_upload"), t("dm_bg_calib")],
                        key="dm_bg_source")
     st.caption(t("dm_bg_hint"))
+    with st.expander(t("protocol_title")):
+        st.markdown(t("protocol_items"))
 
     bg_img = None
     if bg_mode == t("dm_bg_upload"):
@@ -198,9 +200,31 @@ def dosemap_view(state, go):
             sel = red[red >= np.percentile(red, 80)]
             hist, edges = np.histogram(sel, bins=256)
             pico = float(0.5 * (edges[np.argmax(hist)] + edges[np.argmax(hist) + 1]))
-            viz = red[(red >= pico * 0.98) & (red <= pico * 1.02)]
+            bg_sel = (red >= pico * 0.98) & (red <= pico * 1.02)
+            viz = red[bg_sel]
             pv_zero_use = float(np.median(viz)) if viz.size else pico
             st.caption(t("dm_bg_film_pv0").format(pv=f"{pv_zero_use:.0f}"))
+
+            # Transparencia: MOSTRA onde o background foi medido (verde)
+            frac_bg = float(bg_sel.mean())
+            try:
+                from PIL import Image as _PILImage
+                base = crop[:, :, :3] if crop.ndim == 3 else np.stack([crop]*3, axis=-1)
+                base = base.astype(np.float64)
+                if base.max() > 255:           # 16-bit -> 8-bit p/ exibir
+                    base = base / base.max() * 255.0
+                over = base.copy()
+                over[bg_sel] = 0.45 * over[bg_sel] + 0.55 * np.array([0, 220, 90])
+                with st.expander(t("dm_bg_where"), expanded=False):
+                    st.image(over.astype(np.uint8), use_container_width=True,
+                             caption=t("dm_bg_where_cap").format(pct=f"{100*frac_bg:.0f}"))
+            except Exception:
+                frac_bg = float(bg_sel.mean())
+
+            # Aviso: filme aparentemente TODO irradiado (ex.: PDD) ->
+            # nao existe regiao de dose zero; o PV0 fica contaminado.
+            if frac_bg < 0.10:
+                st.warning(t("dm_bg_all_irradiated"))
 
         result = compute_dose_map(crop, pv_zero_use, model_obj,
                                   normalize="max" if is_percent else None)
@@ -237,19 +261,54 @@ def dosemap_view(state, go):
         #  - GRADIENTE/PDD (ex.: filme deitado atravessado pelo feixe): nao ha
         #    plato; a dose nominal refere-se ao PICO -> mediana do top 1% (P99).
         val_mode = st.radio(t("dm_val_mode"),
-                            [t("dm_val_uniform"), t("dm_val_gradient")],
+                            [t("dm_val_uniform"), t("dm_val_gradient"),
+                             t("dm_val_manual")],
                             horizontal=True, key="dm_val_mode",
                             help=t("dm_val_mode_hint"))
-        top_pct = 95 if val_mode == t("dm_val_uniform") else 99
         # Boas praticas (literatura): medir em AREA, nao pixel; suavizar ruido.
         dm_smooth = median_filter(dm_abs, size=5)
-        valid = dm_smooth[np.isfinite(dm_smooth)]
-        if valid.size:
-            thr = np.nanpercentile(dm_smooth, top_pct)
-            plateau = dm_smooth[dm_smooth >= thr]
-            measured = float(np.nanmedian(plateau)) if plateau.size else float(np.nanmedian(dm_smooth))
+        if val_mode == t("dm_val_manual"):
+            # Regiao definida pelo usuario (em % do mapa), com preview.
+            hh, ww = dm_smooth.shape
+            rc1, rc2 = st.columns(2)
+            with rc1:
+                x0, x1 = st.slider(t("dm_val_region_x"), 0, 100, (35, 65),
+                                   key="dm_val_x")
+            with rc2:
+                y0, y1 = st.slider(t("dm_val_region_y"), 0, 100, (35, 65),
+                                   key="dm_val_y")
+            c0, c1_ = int(ww * x0 / 100), max(int(ww * x1 / 100), int(ww * x0 / 100) + 2)
+            r0, r1_ = int(hh * y0 / 100), max(int(hh * y1 / 100), int(hh * y0 / 100) + 2)
+            region = dm_smooth[r0:r1_, c0:c1_]
+            measured = float(np.nanmedian(region)) if region.size else 0.0
+            # preview do retangulo sobre o mapa
+            try:
+                import matplotlib
+                matplotlib.use("Agg")
+                import matplotlib.pyplot as plt
+                import io as _io
+                figp, axp = plt.subplots(figsize=(4.6, 3.6), dpi=100)
+                axp.imshow(dm_smooth, cmap=dm_cmap)
+                axp.add_patch(plt.Rectangle((c0, r0), c1_ - c0, r1_ - r0,
+                                            fill=False, edgecolor="white",
+                                            linewidth=2))
+                axp.set_xticks([]); axp.set_yticks([])
+                axp.set_title(t("dm_val_region_prev"), fontsize=9)
+                bufp = _io.BytesIO()
+                figp.savefig(bufp, format="png", bbox_inches="tight")
+                plt.close(figp)
+                st.image(bufp.getvalue(), width=420)
+            except Exception:
+                pass
         else:
-            measured = 0.0
+            top_pct = 95 if val_mode == t("dm_val_uniform") else 99
+            valid = dm_smooth[np.isfinite(dm_smooth)]
+            if valid.size:
+                thr = np.nanpercentile(dm_smooth, top_pct)
+                plateau = dm_smooth[dm_smooth >= thr]
+                measured = float(np.nanmedian(plateau)) if plateau.size else float(np.nanmedian(dm_smooth))
+            else:
+                measured = 0.0
         diff_pct = (measured - known_cgy) / known_cgy * 100.0 if known_cgy else 0.0
         st.markdown(f"**{t('dm_validation')}**")
         v1, v2, v3 = st.columns(3)

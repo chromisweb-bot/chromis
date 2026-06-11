@@ -52,10 +52,48 @@ def calibration_view(state, go):
             st.info("Background recebido. (Integracao do background avulso na proxima etapa.)")
         return
 
+    with st.expander(t("protocol_title")):
+        st.markdown(t("protocol_items"))
+
+    # ===== Selecao de pontos do ajuste (incluir/excluir) =====    # O NOD e calculado com TODOS os filmes (o PV0 do filme zero continua
+    # valido); a exclusao remove apenas o PAR (NOD, dose) do ajuste.
+    sug = None
+    try:
+        from utils.calibration_engine import suggest_outlier
+        sug = suggest_outlier(nods, dose_list)
+    except Exception:
+        sug = None
+    if sug is not None:
+        st.warning(t("cal_outlier_sug").format(
+            film=f"#{orders[sug['index']]+1}", dose=f"{sug['dose']:.0f}",
+            res=f"{sug['residual']:+.0f}"))
+
+    with st.expander(t("cal_point_selection"), expanded=(sug is not None)):
+        st.caption(t("cal_point_selection_hint"))
+        include = []
+        ncols = 5
+        cols = st.columns(ncols)
+        for i, o in enumerate(orders):
+            with cols[i % ncols]:
+                mark = " ⚠" if (sug is not None and i == sug["index"]) else ""
+                inc = st.checkbox(f"#{o+1} · {dose_list[i]:.0f}{mark}",
+                                  value=True, key=f"cal_inc_{o}")
+                include.append(inc)
+
+    fit_nods = [n for n, k in zip(nods, include) if k]
+    fit_doses = [d for d, k in zip(dose_list, include) if k]
+    fit_orders = [o for o, k in zip(orders, include) if k]
+    n_excl = len(orders) - len(fit_orders)
+    if len(fit_nods) < 4:
+        st.error(t("cal_too_few_points"))
+        return
+    if n_excl:
+        st.info(t("cal_excluded_info").format(n=n_excl))
+
     # ===== Verificacao de qualidade dos pontos (sanidade) =====
     try:
         from utils.calibration_engine import check_calibration_quality
-        qc_warns = check_calibration_quality(dose_list, nods, lang=get_lang())
+        qc_warns = check_calibration_quality(fit_doses, fit_nods, lang=get_lang())
         for wmsg in qc_warns:
             st.warning(f"⚠ {wmsg}")
     except Exception:
@@ -63,13 +101,13 @@ def calibration_view(state, go):
 
     # ===== Ajustar todos os modelos =====
     with st.spinner("Ajustando modelos..."):
-        results = fit_all_models(nods, dose_list)
+        results = fit_all_models(fit_nods, fit_doses)
 
     if not results:
         st.error(t("cal_no_fit"))
         return
 
-    rec = recommend_model(results, dose_list, unit=unit)
+    rec = recommend_model(results, fit_doses, unit=unit)
 
     # ===== Recomendacao inteligente =====
     rec_model = rec["recommended"]
@@ -124,19 +162,20 @@ def calibration_view(state, go):
         state["calib_graph_theme_val"] = theme_val
         try:
             from utils.curve_plot import make_calibration_plot
-            png = make_calibration_plot(nods, dose_list, chosen_result["model_obj"],
-                                        unit, orders, theme=theme_val, lang=get_lang())
+            png = make_calibration_plot(fit_nods, fit_doses, chosen_result["model_obj"],
+                                        unit, fit_orders, theme=theme_val, lang=get_lang())
             st.image(png, use_container_width=True)
         except Exception as e:
             st.caption(f"(Grafico indisponivel: {e})")
 
     # ===== Tabela de pontos =====
     with st.expander(t("cal_see_points")):
-        st.markdown("| Filme | Dose | PV vermelho | NOD |")
-        st.markdown("|---|---|---|---|")
+        st.markdown("| Filme | Dose | PV vermelho | NOD | |")
+        st.markdown("|---|---|---|---|---|")
         rows = ""
-        for o, pv, dose, nod in zip(orders, pv_list, dose_list, nods):
-            rows += f"| #{o+1} | {dose:.0f} {unit} | {pv:.1f} | {nod:.4f} |\n"
+        for o, pv, dose, nod, inc in zip(orders, pv_list, dose_list, nods, include):
+            tag = "" if inc else t("cal_excluded_tag")
+            rows += f"| #{o+1} | {dose:.0f} {unit} | {pv:.1f} | {nod:.4f} | {tag} |\n"
         st.markdown(rows)
 
     # ===== Salvar =====
@@ -158,15 +197,17 @@ def calibration_view(state, go):
             # Gerar imagem da curva para o relatorio
             try:
                 from utils.curve_plot import make_calibration_plot
-                curve_png = make_calibration_plot(nods, dose_list,
-                                                  chosen_result["model_obj"], unit, orders,
+                curve_png = make_calibration_plot(fit_nods, fit_doses,
+                                                  chosen_result["model_obj"], unit, fit_orders,
                                                   theme=state.get("calib_graph_theme_val","dark"),
                                                   lang=get_lang())
                 state["calibration_curve_png"] = curve_png
             except Exception:
                 pass
             _save_calibration(state, chosen_model, chosen_result, rec_model,
-                              nods, dose_list, orders, pv_list, unit, MODEL_INFO)
+                              fit_nods, fit_doses, fit_orders,
+                              [p for p, k in zip(pv_list, include) if k],
+                              unit, MODEL_INFO)
             notify_user_activity(state.get("user", "?"), "Calibracao concluida",
                                  f"Modelo {MODEL_INFO[chosen_model]['nome']}, "
                                  f"R2={chosen_result['r_squared']:.4f}")

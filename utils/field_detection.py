@@ -98,10 +98,52 @@ def analyze_film_field(film_gray: np.ndarray, mask: np.ndarray = None,
                 "center_intensity": d_mean, "border_intensity": l_mean,
                 "diff": sep}
 
-    fb = largest.bbox  # (minr,minc,maxr,maxc)
+    fb = _fwhm_bbox(film_gray, mask, d_vals, l_vals)
+    if fb is None:
+        fb = largest.bbox  # fallback: bbox do maior componente escuro
     return {"field_type": "smaller", "field_bbox": fb,
             "center_intensity": d_mean, "border_intensity": l_mean,
             "diff": sep}
+
+
+def _fwhm_bbox(film_gray, mask, d_vals, l_vals):
+    """
+    Bordas do campo pelo metodo FISICO padrao (FWHM/50%):
+    o campo de radiacao e definido onde o sinal cruza 50% entre o nivel do
+    PLATO (regiao central irradiada, escura) e o FUNDO (borda nao irradiada,
+    clara). Usa os perfis medios por linha e por coluna do filme.
+
+    Corrige o vies do bbox-do-Otsu, que em filmes com penumbra larga
+    'engordava' o campo ate quase o tamanho do filme.
+    """
+    try:
+        h, w = film_gray.shape
+        plateau = float(np.median(d_vals[d_vals <= np.percentile(d_vals, 40)])) \
+            if d_vals.size else float(np.percentile(film_gray[mask], 10))
+        bg = float(np.median(l_vals)) if l_vals.size else float(np.percentile(film_gray[mask], 95))
+        half = 0.5 * (plateau + bg)
+
+        g = film_gray.copy()
+        g[~mask] = bg  # fora do filme conta como fundo
+
+        # perfis medios (suavizados com media movel de 3)
+        prof_c = np.convolve(g.mean(axis=0), np.ones(3) / 3.0, mode="same")
+        prof_r = np.convolve(g.mean(axis=1), np.ones(3) / 3.0, mode="same")
+
+        cols = np.where(prof_c <= half)[0]
+        rows = np.where(prof_r <= half)[0]
+        if cols.size < 3 or rows.size < 3:
+            return None
+        minc, maxc = int(cols[0]), int(cols[-1]) + 1
+        minr, maxr = int(rows[0]), int(rows[-1]) + 1
+        # sanidade: campo entre 10% e 97% do filme em cada eixo
+        if not (0.10 * w <= (maxc - minc) <= 0.97 * w):
+            return None
+        if not (0.10 * h <= (maxr - minr) <= 0.97 * h):
+            return None
+        return (minr, minc, maxr, maxc)
+    except Exception:
+        return None
 
 
 def compute_roi(film_shape, field_bbox=None, edge_recoil_mm=3.0,

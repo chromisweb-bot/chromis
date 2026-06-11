@@ -64,12 +64,17 @@ def _polynomial2(nod, a, b, c):
 
 def _rational(nod, a, b, c):
     """
-    Rational (forma Ashland/FilmQA Pro): Dose = c + b/(a - NOD)
-    Reescrita para passar pela origem e ser monotonica.
-    Mantida por compatibilidade; a recomendada agora e a 'devic'.
+    Racional do FABRICANTE (Ashland/Gafchromic, brochura EBT4):
+        PV(D) = A + B/(D - C)   [resposta do scanner vs dose]
+    Em transmitancia relativa T = PV/PV0 = 10^(-NOD), a forma equivale a
+        T(D) = a + b/(D - c)    e, invertida para o nosso fluxo:
+        Dose(NOD) = c + b / (10^(-NOD) - a)
+    E a funcao recomendada na documentacao oficial do filme: comportamento
+    fisico correto na saturacao (T tende a uma assintota em dose alta).
     """
-    denom = (a - nod)
-    denom = np.where(np.abs(denom) < 1e-9, 1e-9, denom)
+    T = np.power(10.0, -np.clip(nod, 0.0, None))
+    denom = T - a
+    denom = np.where(np.abs(denom) < 1e-9, np.sign(denom + 1e-12) * 1e-9, denom)
     return c + b / denom
 
 
@@ -163,7 +168,17 @@ def fit_calibration(
             elif model_type == "polynomial2":
                 initial_guess = np.array([0.0, 1.0, 0.0])
             elif model_type == "rational":
-                initial_guess = np.array([0.0, 1.0, 0.0])
+                # Forma do fabricante: Dose = c + b/(T - a), T = 10^(-NOD).
+                # Chutes data-driven pelas condicoes de contorno:
+                #   D=0 -> T=1 -> c = -b/(1-a)
+                #   D=dose_max -> T=T_min -> resolve b.
+                nmax = float(np.max(nod)) if len(nod) else 0.5
+                dmax = float(np.max(dose)) if len(dose) else 1000.0
+                t_min = 10.0 ** (-nmax)
+                a0 = 0.5 * t_min                       # assintota abaixo de T_min
+                b0 = dmax * (t_min - a0) * (1.0 - a0) / max(1.0 - t_min, 1e-6)
+                c0 = -b0 / max(1.0 - a0, 1e-6)
+                initial_guess = np.array([a0, b0, c0])
             elif model_type == "log_linear":
                 initial_guess = np.array([0.0, 1.0])
             elif model_type == "devic":
