@@ -226,6 +226,22 @@ def dosemap_view(state, go):
             if frac_bg < 0.10:
                 st.warning(t("dm_bg_all_irradiated"))
 
+            # Diagnostico de LRA (artefato lateral do scanner): compara o
+            # background medido nas metades esquerda e direita do filme.
+            try:
+                _, wbg = red.shape
+                left_sel = bg_sel.copy(); left_sel[:, wbg // 2:] = False
+                right_sel = bg_sel.copy(); right_sel[:, :wbg // 2] = False
+                if left_sel.sum() > 200 and right_sel.sum() > 200:
+                    pv_l = float(np.median(red[left_sel]))
+                    pv_r = float(np.median(red[right_sel]))
+                    lra_pct = 100.0 * abs(pv_l - pv_r) / max(pv_zero_use, 1e-6)
+                    if lra_pct > 1.0:
+                        st.info(t("dm_lra_warn").format(
+                            l=f"{pv_l:.0f}", r=f"{pv_r:.0f}", pct=f"{lra_pct:.1f}"))
+            except Exception:
+                pass
+
         result = compute_dose_map(crop, pv_zero_use, model_obj,
                                   normalize="max" if is_percent else None)
         if is_percent:
@@ -269,13 +285,20 @@ def dosemap_view(state, go):
         dm_smooth = median_filter(dm_abs, size=5)
         if val_mode == t("dm_val_manual"):
             # Regiao definida pelo usuario (em % do mapa), com preview.
+            # Default: caixa centrada no PONTO DE DOSE MAXIMA do mapa
+            # (regiao de dose plena), nao no centro geometrico.
             hh, ww = dm_smooth.shape
+            iy, ix = np.unravel_index(int(np.nanargmax(dm_smooth)), dm_smooth.shape)
+            cx_pct = int(100 * ix / ww); cy_pct = int(100 * iy / hh)
+            dx0 = max(0, cx_pct - 12); dx1 = min(100, cx_pct + 12)
+            dy0 = max(0, cy_pct - 12); dy1 = min(100, cy_pct + 12)
+            st.caption(t("dm_val_manual_hint"))
             rc1, rc2 = st.columns(2)
             with rc1:
-                x0, x1 = st.slider(t("dm_val_region_x"), 0, 100, (35, 65),
+                x0, x1 = st.slider(t("dm_val_region_x"), 0, 100, (dx0, dx1),
                                    key="dm_val_x")
             with rc2:
-                y0, y1 = st.slider(t("dm_val_region_y"), 0, 100, (35, 65),
+                y0, y1 = st.slider(t("dm_val_region_y"), 0, 100, (dy0, dy1),
                                    key="dm_val_y")
             c0, c1_ = int(ww * x0 / 100), max(int(ww * x1 / 100), int(ww * x0 / 100) + 2)
             r0, r1_ = int(hh * y0 / 100), max(int(hh * y1 / 100), int(hh * y0 / 100) + 2)

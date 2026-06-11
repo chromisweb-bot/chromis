@@ -38,6 +38,22 @@ def analyze_film_field(film_gray: np.ndarray, mask: np.ndarray = None,
         mask = np.ones_like(film_gray, dtype=bool)
 
     h, w = film_gray.shape
+
+    # Analisa apenas o MIOLO do filme: a borda cortada do filme costuma ter
+    # uma sombra escura fina no scan que contamina a separacao campo/borda.
+    # IMPORTANTE: erosao morfologica NAO encolhe a mascara nas bordas da
+    # imagem (padding por reflexao), entao a moldura e zerada explicitamente.
+    core_r = max(2, int(round(min(h, w) * 0.04)))
+    mask_core = mask.copy()
+    mask_core[:core_r, :] = False
+    mask_core[-core_r:, :] = False
+    mask_core[:, :core_r] = False
+    mask_core[:, -core_r:] = False
+    mask_core &= morphology.erosion(mask, morphology.disk(core_r))
+    if mask_core.sum() < 100:
+        mask_core = mask
+    mask = mask_core
+
     vals = film_gray[mask]
     if vals.size < 100:
         return {"field_type": "full", "field_bbox": None,
@@ -109,12 +125,16 @@ def analyze_film_field(film_gray: np.ndarray, mask: np.ndarray = None,
 def _fwhm_bbox(film_gray, mask, d_vals, l_vals):
     """
     Bordas do campo pelo metodo FISICO padrao (FWHM/50%):
-    o campo de radiacao e definido onde o sinal cruza 50% entre o nivel do
-    PLATO (regiao central irradiada, escura) e o FUNDO (borda nao irradiada,
-    clara). Usa os perfis medios por linha e por coluna do filme.
+    o campo e definido onde o sinal cruza 50% entre o PLATO (regiao central
+    irradiada, escura) e o FUNDO (borda nao irradiada, clara).
 
-    Corrige o vies do bbox-do-Otsu, que em filmes com penumbra larga
-    'engordava' o campo ate quase o tamanho do filme.
+    v2 — robusta a artefatos reais de scan:
+      * perfis por MEDIANA (nao media) de cada linha/coluna -> imune a
+        etiquetas, poeira e a SOMBRA ESCURA da borda cortada do filme,
+        que na v1 'esticava' o campo ate a borda;
+      * o cruzamento de 50% e buscado DO CENTRO DO CAMPO PARA FORA,
+        parando no primeiro cruzamento real (quedas espurias na borda do
+        filme ficam alem do cruzamento e nao contaminam).
     """
     try:
         h, w = film_gray.shape
@@ -126,16 +146,32 @@ def _fwhm_bbox(film_gray, mask, d_vals, l_vals):
         g = film_gray.copy()
         g[~mask] = bg  # fora do filme conta como fundo
 
-        # perfis medios (suavizados com media movel de 3)
-        prof_c = np.convolve(g.mean(axis=0), np.ones(3) / 3.0, mode="same")
-        prof_r = np.convolve(g.mean(axis=1), np.ones(3) / 3.0, mode="same")
+        # Perfis por MEDIANA (robustos), suavizados com media movel de 3
+        med_c = np.median(g, axis=0)
+        med_r = np.median(g, axis=1)
+        prof_c = np.convolve(med_c, np.ones(3) / 3.0, mode="same")
+        prof_r = np.convolve(med_r, np.ones(3) / 3.0, mode="same")
 
-        cols = np.where(prof_c <= half)[0]
-        rows = np.where(prof_r <= half)[0]
-        if cols.size < 3 or rows.size < 3:
+        def walk_out(prof, n):
+            """Acha o platô central e caminha para fora ate cruzar 'half'."""
+            lo, hi = int(n * 0.20), max(int(n * 0.80), int(n * 0.20) + 1)
+            center = lo + int(np.argmin(prof[lo:hi]))
+            if prof[center] > half:      # nem o centro esta abaixo de 50%
+                return None
+            left = center
+            while left > 0 and prof[left - 1] <= half:
+                left -= 1
+            right = center
+            while right < n - 1 and prof[right + 1] <= half:
+                right += 1
+            return left, right + 1
+
+        cw = walk_out(prof_c, w)
+        rw = walk_out(prof_r, h)
+        if cw is None or rw is None:
             return None
-        minc, maxc = int(cols[0]), int(cols[-1]) + 1
-        minr, maxr = int(rows[0]), int(rows[-1]) + 1
+        minc, maxc = cw
+        minr, maxr = rw
         # sanidade: campo entre 10% e 97% do filme em cada eixo
         if not (0.10 * w <= (maxc - minc) <= 0.97 * w):
             return None
