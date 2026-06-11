@@ -60,9 +60,16 @@ def compute_dose_map(film_image, pv_zero, model_obj, denoise=True,
         except Exception:
             pass
 
-    pv_zero = max(float(pv_zero), 1e-6)
+    # pv_zero pode ser ESCALAR ou ARRAY 1D (PV0 por coluna — correcao de
+    # 1a ordem do artefato lateral do scanner/LRA, interpolado entre as
+    # regioes nao irradiadas das duas laterais do filme).
+    pv0_arr = np.asarray(pv_zero, dtype=np.float64)
+    if pv0_arr.ndim == 1 and pv0_arr.size == red.shape[1]:
+        pv0_use = np.clip(pv0_arr, 1e-6, None)[None, :]
+    else:
+        pv0_use = max(float(pv0_arr), 1e-6)
     red_safe = np.clip(red, 1e-6, None)
-    netod = np.log10(pv_zero / red_safe)
+    netod = np.log10(pv0_use / red_safe)
     netod = np.clip(netod, 0.0, None)
 
     flat = netod.ravel()

@@ -139,6 +139,23 @@ def dosemap_view(state, go):
     margin_mm = st.slider(t("dm_edge_margin"), 0.0, 5.0, 3.0, 0.5,
                           key="dm_edge_margin", help=t("dm_edge_margin_hint"))
 
+    # Re-escala one-scan (Lewis 2012): um filme de REFERENCIA com dose
+    # conhecida, escaneado JUNTO do filme de medida, re-escala a curva e
+    # elimina desvios sistematicos entre scans/tempos (caminho para 1-2%).
+    rescale_k = None
+    with st.expander(t("dm_rescale_title")):
+        st.caption(t("dm_rescale_hint"))
+        ref_file = st.file_uploader(t("dm_rescale_file"),
+                                    type=["tif", "tiff", "png", "jpg", "jpeg"],
+                                    key="dm_ref_file")
+        rc1, rc2 = st.columns(2)
+        with rc1:
+            ref_dose_val = st.number_input(t("dm_rescale_dose"), 0.0, 100000.0,
+                                           0.0, key="dm_ref_dose")
+        with rc2:
+            ref_dose_unit = st.radio(t("up_unit"), ["cGy", "Gy"],
+                                     horizontal=True, key="dm_ref_unit")
+
     # Fonte do background (PV0). Ordem por robustez na pratica real:
     #  1) regiao nao irradiada do proprio filme = mesmo scan/tempo (mais robusto)
     #  2) upload de background separado = so funciona se mesmo lote E mesmo scan
@@ -203,13 +220,52 @@ def dosemap_view(state, go):
             # deitado, campo cruzando cantos etc.). Refina com a mediana dos
             # pixels a ±2% do pico.
             red = _red_channel(crop)
-            sel = red[red >= np.percentile(red, 80)]
-            hist, edges = np.histogram(sel, bins=256)
-            pico = float(0.5 * (edges[np.argmax(hist)] + edges[np.argmax(hist) + 1]))
-            bg_sel = (red >= pico * 0.98) & (red <= pico * 1.02)
-            viz = red[bg_sel]
-            pv_zero_use = float(np.median(viz)) if viz.size else pico
-            st.caption(t("dm_bg_film_pv0").format(pv=f"{pv_zero_use:.0f}"))
+
+            def _moda_cluster(reg):
+                """Moda do cluster claro de uma regiao + selecao usada."""
+                if reg.size < 400:
+                    return None, None
+                s = reg[reg >= np.percentile(reg, 80)]
+                hist_, edges_ = np.histogram(s, bins=256)
+                p = float(0.5 * (edges_[np.argmax(hist_)] + edges_[np.argmax(hist_) + 1]))
+                selm = (reg >= p * 0.98) & (reg <= p * 1.02)
+                if selm.sum() < 200:
+                    return None, None
+                return float(np.median(reg[selm])), selm
+
+            hh0, ww0 = red.shape
+            pvL, selL = _moda_cluster(red[:, :ww0 // 2])
+            pvR, selR = _moda_cluster(red[:, ww0 // 2:])
+
+            bg_sel = np.zeros_like(red, dtype=bool)
+            if pvL is not None and pvR is not None:
+                # v4: PV0 POR COLUNA, interpolado entre as modas das duas
+                # laterais (correcao de 1a ordem do LRA do scanner — a
+                # observacao do usuario de que os dois lados diferem).
+                xL = float(np.median(np.where(selL.any(axis=0))[0]))
+                xR = float(ww0 // 2 + np.median(np.where(selR.any(axis=0))[0]))
+                pv_zero_use = np.interp(np.arange(ww0), [xL, xR], [pvL, pvR])
+                bg_sel[:, :ww0 // 2] = selL
+                bg_sel[:, ww0 // 2:] = selR
+                st.caption(t("dm_bg_film_pv0_lr").format(
+                    l=f"{pvL:.0f}", r=f"{pvR:.0f}"))
+                lra_pct = 100.0 * abs(pvL - pvR) / max(0.5 * (pvL + pvR), 1e-6)
+                if lra_pct > 1.0:
+                    st.info(t("dm_lra_corrected").format(pct=f"{lra_pct:.1f}"))
+            else:
+                # fallback: moda unica (filme com so uma lateral limpa)
+                pv0s, sel0 = _moda_cluster(red)
+                if pv0s is None:
+                    sel = red[red >= np.percentile(red, 80)]
+                    hist, edges = np.histogram(sel, bins=256)
+                    pico = float(0.5 * (edges[np.argmax(hist)] + edges[np.argmax(hist) + 1]))
+                    bg_sel = (red >= pico * 0.98) & (red <= pico * 1.02)
+                    viz = red[bg_sel]
+                    pv_zero_use = float(np.median(viz)) if viz.size else pico
+                else:
+                    pv_zero_use = pv0s
+                    bg_sel = sel0
+                st.caption(t("dm_bg_film_pv0").format(pv=f"{float(np.mean(pv_zero_use)):.0f}"))
 
             # Transparencia: MOSTRA onde o background foi medido (verde)
             frac_bg = float(bg_sel.mean())
@@ -232,22 +288,6 @@ def dosemap_view(state, go):
             if frac_bg < 0.10:
                 st.warning(t("dm_bg_all_irradiated"))
 
-            # Diagnostico de LRA (artefato lateral do scanner): compara o
-            # background medido nas metades esquerda e direita do filme.
-            try:
-                _, wbg = red.shape
-                left_sel = bg_sel.copy(); left_sel[:, wbg // 2:] = False
-                right_sel = bg_sel.copy(); right_sel[:, :wbg // 2] = False
-                if left_sel.sum() > 200 and right_sel.sum() > 200:
-                    pv_l = float(np.median(red[left_sel]))
-                    pv_r = float(np.median(red[right_sel]))
-                    lra_pct = 100.0 * abs(pv_l - pv_r) / max(pv_zero_use, 1e-6)
-                    if lra_pct > 1.0:
-                        st.info(t("dm_lra_warn").format(
-                            l=f"{pv_l:.0f}", r=f"{pv_r:.0f}", pct=f"{lra_pct:.1f}"))
-            except Exception:
-                pass
-
         dpi_scan = int(state.get("upload_params", {}).get("dpi",
                        state.get("setup_data", {}).get("dpi", 72)))
         margin_px = max(2, int(round(margin_mm * dpi_scan / 25.4))) if margin_mm > 0 else 0
@@ -255,6 +295,34 @@ def dosemap_view(state, go):
         result = compute_dose_map(crop, pv_zero_use, model_obj,
                                   normalize="max" if is_percent else None,
                                   edge_margin_px=margin_px)
+
+        # Aplica a re-escala one-scan, se um filme de referencia foi dado.
+        if ref_file is not None and ref_dose_val > 0:
+            try:
+                from PIL import Image as _PILImg
+                import io as _io2
+                ref_img = np.array(_PILImg.open(_io2.BytesIO(ref_file.getvalue())))
+                ref_red = _red_channel(ref_img)
+                rh, rw = ref_red.shape
+                # mediana da regiao central (50%) do filme de referencia
+                ref_pv = float(np.median(
+                    ref_red[rh // 4: 3 * rh // 4, rw // 4: 3 * rw // 4]))
+                pv0_scalar = float(np.mean(pv_zero_use))
+                ref_netod = max(0.0, float(np.log10(max(pv0_scalar, 1e-6) /
+                                                    max(ref_pv, 1e-6))))
+                from calibration import predict_dose as _pd
+                ref_measured = float(np.asarray(
+                    _pd(model_obj, np.array([ref_netod])))[0])
+                ref_known = ref_dose_val * 100.0 if ref_dose_unit == "Gy" else ref_dose_val
+                if ref_measured > 1e-6:
+                    rescale_k = ref_known / ref_measured
+                    result["dose_map"] = result["dose_map"] * rescale_k
+                    for kk in ("dose_min", "dose_max", "dose_mean"):
+                        result[kk] = result[kk] * rescale_k
+                    if "ref_dose" in result:
+                        result["ref_dose"] = result["ref_dose"] * rescale_k
+            except Exception:
+                rescale_k = None
         if is_percent:
             png = render_dose_map_png(result["dose_map_pct"], unit, get_lang(),
                                       theme_val, percent=True, colormap=dm_cmap)
@@ -263,6 +331,9 @@ def dosemap_view(state, go):
                                       theme_val, colormap=dm_cmap)
 
     st.image(png, use_container_width=True)
+
+    if rescale_k is not None:
+        st.success(t("dm_rescale_applied").format(k=f"{rescale_k:.4f}"))
 
     # Metricas
     c1, c2, c3 = st.columns(3)
