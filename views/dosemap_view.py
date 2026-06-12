@@ -526,20 +526,33 @@ def dosemap_view(state, go):
             except Exception:
                 pass
         diff_pct = (measured - known_cgy) / known_cgy * 100.0 if known_cgy else 0.0
+        diff_abs = measured - (known_cgy or 0.0)
         st.markdown(f"**{t('dm_validation')}**")
         v1, v2, v3 = st.columns(3)
         v1.metric(t("dm_irradiated"), f"{known_cgy:.0f} cGy")
         v2.metric(t("dm_measured_center"), f"{measured:.0f} cGy")
-        v3.metric(t("dm_difference"), f"{diff_pct:+.1f}%")
+        v3.metric(t("dm_difference"), f"{diff_abs:+.0f} cGy ({diff_pct:+.1f}%)")
         st.caption(t("dm_diff_hint"))
-        # Aviso interpretativo conforme a magnitude do erro
-        ad = abs(diff_pct)
-        if ad <= 3:
-            st.success(t("dm_diff_great"))
-        elif ad <= 5:
-            st.info(t("dm_diff_ok"))
+        # Interpretacao por FAIXA de dose: em dose baixa (<100 cGy) o erro
+        # percentual engana (1-2 cGy de ruido viram 10-20%); julga-se pelo
+        # erro ABSOLUTO. Em dose alta, pelo percentual, como de costume.
+        if known_cgy and known_cgy < 100.0:
+            aa = abs(diff_abs)
+            st.caption(t("dm_lowdose_note"))
+            if aa <= 5:
+                st.success(t("dm_diff_great_abs"))
+            elif aa <= 10:
+                st.info(t("dm_diff_ok_abs"))
+            else:
+                st.warning(t("dm_diff_check"))
         else:
-            st.warning(t("dm_diff_check"))
+            ad = abs(diff_pct)
+            if ad <= 3:
+                st.success(t("dm_diff_great"))
+            elif ad <= 5:
+                st.info(t("dm_diff_ok"))
+            else:
+                st.warning(t("dm_diff_check"))
         central = measured
 
     st.markdown(f"<hr style='border:none;border-top:0.5px solid {COLORS['border_soft']};margin:16px 0'>",
