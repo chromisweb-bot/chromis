@@ -98,12 +98,38 @@ def dosemap_view(state, go):
         st.warning(t("up_load_first"))
         return
 
-    # Se houver mais de um filme, deixa escolher qual analisar
+    # Se houver mais de um filme, deixa escolher qual analisar.
+    # Se o scan tiver o MESMO numero de filmes da calibracao salva, casa por
+    # ordem de intensidade e mostra a DOSE de cada um no seletor — evita
+    # confundir filmes vizinhos (ex.: #7=400 vs #8=600), que sao parecidos.
+    calib_doses_by_order = None
+    try:
+        from utils.study_store import get_module
+        upsaved = get_module(state, "upload")
+        if upsaved and upsaved.get("films") and \
+                int(upsaved.get("n_films", -1)) == len(ordered):
+            unit_up = upsaved.get("unit", "cGy")
+            fac = 100.0 if unit_up == "Gy" else 1.0
+            calib_doses_by_order = {
+                int(fi["order"]): float(fi.get("dose", 0.0)) * fac
+                for fi in upsaved["films"]
+            }
+    except Exception:
+        calib_doses_by_order = None
+
+    def _film_label(f):
+        base = f"#{f['order']+1}"
+        if calib_doses_by_order is not None and f["order"] in calib_doses_by_order:
+            return f"{base} · {calib_doses_by_order[f['order']]:.0f} cGy"
+        return base
+
     if len(ordered) > 1:
         st.markdown(f"**{t('dm_select_film')}**")
-        labels = [f"#{f['order']+1}" for f in ordered]
+        labels = [_film_label(f) for f in ordered]
         sel = st.selectbox(t("dm_film"), labels, key="dm_film_sel")
         film = ordered[labels.index(sel)]
+        if calib_doses_by_order is not None:
+            st.caption(t("dm_film_dose_hint"))
     else:
         film = ordered[0]
         sel = "#1"
@@ -369,6 +395,14 @@ def dosemap_view(state, go):
     known_cgy = None
     if known_dose and known_dose > 0:
         known_cgy = known_dose * 100.0 if known_unit == "Gy" else known_dose
+        # Protecao contra troca de filme: se este scan e o da calibracao e a
+        # dose informada diverge muito da dose DESTE filme, avisa.
+        if calib_doses_by_order is not None:
+            sug = calib_doses_by_order.get(film["order"])
+            if sug and sug > 0 and abs(known_cgy - sug) / sug > 0.20:
+                st.warning(t("dm_film_mismatch").format(
+                    sel=f"#{film['order']+1}", sug=f"{sug:.0f}",
+                    inf=f"{known_cgy:.0f}"))
         import numpy as np
         from scipy.ndimage import median_filter
         dm_abs = result["dose_map"]
