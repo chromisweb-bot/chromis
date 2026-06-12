@@ -145,8 +145,16 @@ def render_dose_map_png(dose_map, unit="cGy", lang="pt", theme="dark",
     fig.patch.set_facecolor(bg)
     ax.set_facecolor(bg)
 
-    import matplotlib.cm as _cm
-    cmap_obj = _cm.get_cmap(colormap).copy()
+    # matplotlib.cm.get_cmap foi removida nas versoes novas do matplotlib
+    # (3.11+, e o Streamlit Cloud usa a mais recente). A API moderna e
+    # matplotlib.colormaps[nome] (existe desde a 3.6); mantemos fallback
+    # para ambientes antigos. O .copy() evita mutar o colormap global.
+    import matplotlib as _mpl
+    try:
+        cmap_obj = _mpl.colormaps[colormap].copy()
+    except Exception:
+        import matplotlib.cm as _cm
+        cmap_obj = _cm.get_cmap(colormap).copy()
     cmap_obj.set_bad(color=bg)   # NaN (margem de borda excluida) = fundo
 
     im = ax.imshow(dose_map, cmap=cmap_obj, origin="upper")
