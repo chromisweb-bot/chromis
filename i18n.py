@@ -248,6 +248,8 @@ STRINGS = {
                            "en": "Low dose (<100 cGy): percentage error is misleading — a few cGy of noise become tens of %. In this range agreement is judged by the ABSOLUTE error (cGy)."},
     "dm_diff_great_abs":  {"pt": "Excelente concordancia (dentro de 5 cGy).", "en": "Excellent agreement (within 5 cGy)."},
     "dm_diff_ok_abs":     {"pt": "Concordancia aceitavel (5 a 10 cGy).", "en": "Acceptable agreement (5 to 10 cGy)."},
+    "dm_lowdose_region":  {"pt": "Dose conhecida <30 cGy (sinal fraco, no limite da faixa do filme): a regiao de medida e o retangulo central do filme, pois o campo nao e distinguivel do ruido por limiar.",
+                           "en": "Known dose <30 cGy (weak signal, at the film's range limit): the measured region is the film's central rectangle, since the field is not distinguishable from noise by thresholding."},
     "dm_diff_check":      {"pt": "Diferenca alta (>5%). Verifique: tempo pos-irradiacao igual ao da calibracao? Mesmo scanner/DPI? Tente usar o fundo do proprio filme.",
                            "en": "High difference (>5%). Check: same post-irradiation time as calibration? Same scanner/DPI? Try using the film's own background."},
     "dm_bg_source":       {"pt": "Fundo de referencia (PV0)", "en": "Reference background (PV0)"},

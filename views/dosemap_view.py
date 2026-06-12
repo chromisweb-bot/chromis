@@ -467,22 +467,37 @@ def dosemap_view(state, go):
         else:
             hh, ww = dm_smooth.shape
             if val_mode == t("dm_val_uniform"):
-                # Plato (campo uniforme): mediana do MIOLO do campo.
-                # O campo e detectado (>=50% do maximo robusto) e ERODIDO
-                # (~3 mm) para excluir a penumbra. Corrige o vies do antigo
-                # 'mediana do top 5%', que media a CAUDA DO RUIDO e
-                # superestimava a dose do plato em +0.5 a +3%.
-                from scipy.ndimage import binary_erosion
-                finite = np.isfinite(dm_smooth)
-                thr_f = 0.5 * np.nanpercentile(dm_smooth, 99.5)
-                field_m = finite & (dm_smooth >= thr_f)
-                er_px = max(3, int(round(3.0 * dpi_scan / 25.4)))   # ~3 mm
-                core_m = binary_erosion(field_m, iterations=er_px)
-                if core_m.sum() < 100:
-                    core_m = field_m
-                region_mask = core_m
-                measured = float(np.nanmedian(dm_smooth[region_mask])) \
-                    if region_mask.any() else float(np.nanmedian(dm_smooth))
+                if known_cgy is not None and known_cgy < 30.0:
+                    # DOSE MUITO BAIXA: o sinal (~netOD 0.01) e comparavel ao
+                    # ruido do filme — o EBT4 e especificado a partir de
+                    # ~20 cGy (brochura: 0.2-10 Gy). Um limiar relativo ao
+                    # maximo selecionaria a METADE ALTA DO RUIDO e enviesaria
+                    # a mediana para cima. Mede-se o retangulo central
+                    # geometrico (50% x 50%) do filme.
+                    r0g, r1g = hh // 4, 3 * hh // 4
+                    c0g, c1g = ww // 4, 3 * ww // 4
+                    region_mask = np.zeros_like(dm_smooth, dtype=bool)
+                    region_mask[r0g:r1g, c0g:c1g] = np.isfinite(
+                        dm_smooth[r0g:r1g, c0g:c1g])
+                    measured = float(np.nanmedian(dm_smooth[r0g:r1g, c0g:c1g]))
+                    st.caption(t("dm_lowdose_region"))
+                else:
+                    # Plato (campo uniforme): mediana do MIOLO do campo.
+                    # O campo e detectado (>=50% do maximo robusto) e ERODIDO
+                    # (~3 mm) para excluir a penumbra. Corrige o vies do
+                    # antigo 'mediana do top 5%', que media a CAUDA DO RUIDO
+                    # e superestimava a dose do plato em +0.5 a +3%.
+                    from scipy.ndimage import binary_erosion
+                    finite = np.isfinite(dm_smooth)
+                    thr_f = 0.5 * np.nanpercentile(dm_smooth, 99.5)
+                    field_m = finite & (dm_smooth >= thr_f)
+                    er_px = max(3, int(round(3.0 * dpi_scan / 25.4)))   # ~3 mm
+                    core_m = binary_erosion(field_m, iterations=er_px)
+                    if core_m.sum() < 100:
+                        core_m = field_m
+                    region_mask = core_m
+                    measured = float(np.nanmedian(dm_smooth[region_mask])) \
+                        if region_mask.any() else float(np.nanmedian(dm_smooth))
             else:
                 # PDD: pico no EIXO CENTRAL do campo (como o fisico mede).
                 # Percentil global pega hot spots e os 'horns' do perfil
